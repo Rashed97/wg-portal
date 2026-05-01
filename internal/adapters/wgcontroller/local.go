@@ -831,7 +831,19 @@ func (c LocalController) getOrCreateRoutingTableAndFwMark(
 	fwmark = fwMarkIn
 
 	if fwmark == 0 {
-		// generate a new (temporary) firewall mark based on the interface index
+		// Generate a new (temporary) firewall mark based on the interface
+		// index. RemoveRoutes legitimately calls us with link=nil when the
+		// kernel device is already gone (interface was deleted out-of-band
+		// or wg-portal is cleaning up after a half-imported interface). In
+		// that case there's no index to derive from — leave fwmark/table at
+		// 0 so callers' `linkIndex > 0` and `table > 0` guards skip the
+		// remaining route/rule cleanup. The interface-gone case is best-
+		// effort cleanup anyway: any routes were tied to the gone link's
+		// index and were already torn down by the kernel when the link
+		// disappeared.
+		if link == nil {
+			return
+		}
 		fwmark = uint32(c.cfg.Advanced.RouteTableOffset + link.Attrs().Index)
 	}
 	if table == 0 {
