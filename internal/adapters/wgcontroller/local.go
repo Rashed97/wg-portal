@@ -304,6 +304,19 @@ func (c LocalController) updateLowLevelInterface(pi *domain.PhysicalInterface) e
 		}
 	}
 
+	// If the device should be up, bring it up BEFORE setting addresses so
+	// the kernel auto-installs the proto-kernel link-scope route for each
+	// prefix. The kernel skips this auto-install when the link is DOWN at
+	// AddrReplace time, even if the link is brought up afterwards — leaving
+	// the WG interface address-configured but with no main-table route to
+	// the prefix. wg-quick avoids this by also doing `ip link set ... up`
+	// before `ip address add`.
+	if pi.DeviceUp {
+		if err := c.nl.LinkSetUp(link); err != nil {
+			return fmt.Errorf("failed to bring up device: %w", err)
+		}
+	}
+
 	for _, addr := range pi.Addresses {
 		err := c.nl.AddrReplace(link, addr.NetlinkAddr())
 		if err != nil {
@@ -336,12 +349,9 @@ func (c LocalController) updateLowLevelInterface(pi *domain.PhysicalInterface) e
 		}
 	}
 
-	// Update link state
-	if pi.DeviceUp {
-		if err := c.nl.LinkSetUp(link); err != nil {
-			return fmt.Errorf("failed to bring up device: %w", err)
-		}
-	} else {
+	// If the device should be down, bring it down after addresses are set so
+	// AddrDel above can still operate on a known-state link.
+	if !pi.DeviceUp {
 		if err := c.nl.LinkSetDown(link); err != nil {
 			return fmt.Errorf("failed to bring down device: %w", err)
 		}
@@ -712,6 +722,17 @@ func (c LocalController) setRoutesForFamily(
 			interfaceId, family, err)
 	}
 	for _, rawRoute := range rawRoutes {
+		// Skip routes installed by the kernel itself (proto kernel) — these
+		// are the auto-created link-scope routes for each interface address
+		// (e.g. `10.66.0.0/24 dev wg0 proto kernel scope link src 10.66.0.1`).
+		// They're maintained by the kernel based on the address assignment
+		// and shouldn't be deleted here; if we do, the interface stays
+		// addressed but with no main-table route to its own subnet, breaking
+		// reply traffic to peers.
+		if rawRoute.Protocol == unix.RTPROT_KERNEL {
+			continue
+		}
+
 		if rawRoute.Dst == nil { // handle default route
 			var netlinkAddr domain.Cidr
 			if family == netlink.FAMILY_V4 {
