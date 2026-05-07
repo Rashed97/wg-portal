@@ -50,13 +50,41 @@ COPY --from=builder /build/dist/wg-portal /
 ######
 # Final image
 ######
+######
+# Build amneziawg-tools (awg + awg-quick) from upstream
+# We need these in the final image because AmneziaController shells
+# out to them. amneziawg-tools is forked from wireguard-tools — no
+# Alpine package exists, so we build from source. Pin AWG_TOOLS_REF
+# to a tagged release for reproducibility.
+######
+FROM alpine:3.23 AS amneziawg-tools-builder
+ARG AWG_TOOLS_REF=v1.0.20260223
+RUN apk add --no-cache git make gcc musl-dev linux-headers bash
+WORKDIR /build
+RUN git clone --depth 1 --branch ${AWG_TOOLS_REF} \
+    https://github.com/amnezia-vpn/amneziawg-tools.git . \
+    && cd src \
+    && make WITH_BASHCOMPLETION=no WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no \
+    && strip --strip-all wg awg awg-quick 2>/dev/null || true
+
+######
+# Final image
+######
 FROM alpine:3.23
-# Install OS-level dependencies
+# Install OS-level dependencies. wireguard-tools provides 'wg' for
+# vanilla WG interfaces; awg/awg-quick come from the builder stage
+# above for AmneziaWG support (BNet-a2rn).
 RUN apk add --no-cache bash curl iptables nftables openresolv wireguard-tools tzdata
 # Setup timezone
 ENV TZ=UTC
 # Copy binaries
 COPY --from=builder /build/dist/wg-portal /app/wg-portal
+# Copy amneziawg userspace tools into PATH so AmneziaController can
+# locate them via exec.LookPath. awg-quick is bash-script style and
+# expects 'awg' in /usr/bin.
+COPY --from=amneziawg-tools-builder /build/src/awg /usr/bin/awg
+COPY --from=amneziawg-tools-builder /build/src/wg-quick/linux.bash /usr/bin/awg-quick
+RUN chmod +x /usr/bin/awg /usr/bin/awg-quick
 # Set the Current Working Directory inside the container
 WORKDIR /app
 # Expose default ports for metrics, web and wireguard

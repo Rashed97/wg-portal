@@ -1,4 +1,27 @@
-# WireGuard Portal v2
+# WireGuard Portal v2 — bnet/awg fork
+
+> **Fork notice — Bitfissure BNet:**
+> This branch (`bnet/awg`) adds an **[AmneziaWG](https://github.com/amnezia-vpn/amneziawg-go)** backend
+> alongside the existing wgctrl/MikroTik/pfSense backends. AmneziaWG is a WireGuard
+> protocol fork that adds traffic obfuscation (V2 params: Jc/Jmin/Jmax/S1-S4/H1-H4/I1-I5)
+> to evade DPI-based WireGuard fingerprinting, useful in restrictive networks.
+>
+> Architecture: a new `AmneziaController` (`internal/adapters/wgcontroller/amnezia.go`)
+> shells out to `awg` and `awg-quick` rather than calling netlink directly — the
+> wgctrl-go library doesn't recognize AWG's extended UAPI keys. This is ~3× cheaper
+> to maintain than a netlink port. The Docker image bundles upstream amneziawg-tools
+> compiled from a pinned tag.
+>
+> Operator-facing changes:
+> 1. New `Backend = amneziawg` option for interfaces.
+> 2. 16 V2 obfuscation params editable in the InterfaceEditModal.
+> 3. Peer config download (`?style=amneziawg`) embeds those params in the
+>    `[Interface]` section. Vanilla `wg-quick` style auto-promotes to `amneziawg`
+>    when the server interface is AWG-backed (vanilla wg clients ignore the extra
+>    fields harmlessly).
+>
+> All vanilla WireGuard flows remain unchanged. Track upstream merge status in
+> bead `BNet-a2rn` (epic).
 
 [![Build Status](https://github.com/h44z/wg-portal/actions/workflows/docker-publish.yml/badge.svg?event=push)](https://github.com/h44z/wg-portal/actions/workflows/docker-publish.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
