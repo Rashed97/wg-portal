@@ -256,6 +256,57 @@ const hasAwgValidationErrors = computed(() => {
   return Object.keys(awgValidationErrors.value).length > 0
 })
 
+// Cryptographically-strong randint helper using window.crypto. Falls back
+// to Math.random for hex-byte generation only (where biased randomness is
+// fine — not for crypto material). uint32 seeds use crypto.
+function cryptoRandUint32() {
+  const buf = new Uint32Array(1)
+  window.crypto.getRandomValues(buf)
+  return buf[0]
+}
+function randInRange(lo, hi) {
+  return lo + (cryptoRandUint32() % (hi - lo + 1))
+}
+
+// Populate AmneziaWG fields with sensible random defaults. Picks values
+// from the recommended range for each numeric param, generates four
+// distinct uint32s > 4 for H1-H4 (so they don't collide with vanilla
+// WG types 1-4), and leaves I1-I5 empty (V2 injection is opt-in).
+// Existing values are overwritten — operator confirmation expected via
+// the surrounding "are you sure"-style notify message.
+function generateRandomAwgParams() {
+  const a = freshAmneziaWG()
+
+  a.Jc = randInRange(awgParamSpec.Jc.recommended[0], awgParamSpec.Jc.recommended[1])
+  a.Jmin = randInRange(awgParamSpec.Jmin.recommended[0], awgParamSpec.Jmin.recommended[1])
+  // Make sure Jmax > Jmin
+  a.Jmax = randInRange(Math.max(awgParamSpec.Jmax.recommended[0], a.Jmin + 50), awgParamSpec.Jmax.recommended[1])
+
+  a.S1 = randInRange(awgParamSpec.S1.recommended[0], awgParamSpec.S1.recommended[1])
+  // Avoid S1 + 56 === S2 collision: regenerate S2 if it lands on the bad value
+  do {
+    a.S2 = randInRange(awgParamSpec.S2.recommended[0], awgParamSpec.S2.recommended[1])
+  } while (a.S1 + 56 === a.S2)
+  a.S3 = randInRange(awgParamSpec.S3.recommended[0], awgParamSpec.S3.recommended[1])
+  a.S4 = randInRange(awgParamSpec.S4.recommended[0], awgParamSpec.S4.recommended[1])
+
+  // H1-H4: four distinct uint32s, all > 4. Loop until we get 4 unique values.
+  const hSet = new Set()
+  while (hSet.size < 4) {
+    const v = cryptoRandUint32()
+    if (v > 4) hSet.add(v)
+  }
+  const [h1, h2, h3, h4] = [...hSet]
+  a.H1 = h1; a.H2 = h2; a.H3 = h3; a.H4 = h4
+
+  formData.value.AmneziaWG = a
+  notify({
+    title: t('modals.interface-edit.amneziawg-randomized-title'),
+    text: t('modals.interface-edit.amneziawg-randomized-body'),
+    type: 'success',
+  })
+}
+
 function handleChangeAddresses(tags) {
   let validInput = true
   tags.forEach(tag => {
@@ -570,6 +621,14 @@ async function del() {
           <fieldset v-if="formData.Backend==='amneziawg'">
             <legend class="mt-4">{{ $t('modals.interface-edit.header-amneziawg') }}</legend>
             <p class="text-muted small">{{ $t('modals.interface-edit.amneziawg-description') }}</p>
+
+            <!-- Generate-random button: sane defaults for all numeric params + 4 distinct H values.
+                 Confirmation via subsequent notify so operators don't accidentally clobber tuned values. -->
+            <div class="d-flex justify-content-end mb-2">
+              <button type="button" class="btn btn-outline-secondary btn-sm" @click.prevent="generateRandomAwgParams">
+                <i class="fas fa-dice me-1"></i>{{ $t('modals.interface-edit.amneziawg-randomize-button') }}
+              </button>
+            </div>
 
             <!-- Junk packets row -->
             <div class="row">

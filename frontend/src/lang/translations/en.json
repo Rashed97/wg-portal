@@ -528,7 +528,10 @@
       "amneziawg-description": "Traffic-obfuscation parameters for the AmneziaWG protocol. Both server and client must agree on these values for the handshake to succeed. Hover the (?) icon next to each field for the parameter description and recommended range.",
       "amneziawg-i-description": "V2 packet-injection bytes (I1-I5). Empty values disable the feature. Hex strings only.",
       "amneziawg-validation-failed-title": "AmneziaWG validation errors",
-      "amneziawg-validation-failed-body": "Fix the highlighted obfuscation parameter errors before saving. Hover the (?) icons or look at the red help text for details."
+      "amneziawg-validation-failed-body": "Fix the highlighted obfuscation parameter errors before saving. Hover the (?) icons or look at the red help text for details.",
+      "amneziawg-randomize-button": "Generate Random Parameters",
+      "amneziawg-randomized-title": "AmneziaWG parameters randomized",
+      "amneziawg-randomized-body": "Numeric params filled within recommended ranges; H1-H4 are 4 distinct uint32s > 4. Save the interface to apply, then re-export the peer .conf so clients pick up the new values."
     },
     "peer-view": {
       "headline-peer": "Peer:",
