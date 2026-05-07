@@ -114,9 +114,11 @@ onMounted(async () => {
     </div>
   </div>
   <div class="mt-2 table-responsive">
-    <div v-if="profile.CountPeers === 0">
-      <h4>{{ $t('profile.no-peer.headline') }}</h4>
-      <p>{{ $t('profile.no-peer.abstract') }}</p>
+    <div v-if="profile.CountPeers === 0" class="text-center py-5">
+      <i class="fas fa-user-shield text-muted" style="font-size: 3rem;"></i>
+      <h4 class="mt-3">{{ $t('profile.no-peer.headline') }}</h4>
+      <p class="text-muted">{{ $t('profile.no-peer.abstract') }}</p>
+      <p class="small text-muted mb-0">{{ $t('profile.no-peer.hint') }}</p>
     </div>
     <table v-if="profile.CountPeers !== 0" id="peerTable" class="table table-sm">
       <thead>

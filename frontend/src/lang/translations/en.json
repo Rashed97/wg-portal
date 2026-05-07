@@ -110,7 +110,8 @@
     },
     "no-peer": {
       "headline": "No peers available",
-      "abstract": "Currently, there are no peers available for the selected WireGuard interface."
+      "abstract": "Currently, there are no peers available for the selected WireGuard interface.",
+      "hint": "Use the “+” button to add the first peer to this interface, or import existing peers via the bulk-add tool."
     },
     "table-heading": {
       "name": "Name",
@@ -199,7 +200,8 @@
     },
     "no-peer": {
       "headline": "No peers available",
-      "abstract": "Currently, there are no peers associated with your user profile."
+      "abstract": "Currently, there are no peers associated with your user profile.",
+      "hint": "Use the “+” button at the top of this page to create your first peer. The .conf file or QR code will be available right after."
     },
     "peer-connected": "Connected",
     "button-add-peer": "Add Peer",
