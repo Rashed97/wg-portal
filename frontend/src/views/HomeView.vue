@@ -67,8 +67,31 @@ const auth = authStore()
         <div class="card-body d-flex flex-column">
           <h5 class="card-title">{{ $t('home.awg.installation.headline') }}</h5>
           <p class="card-text">{{ $t('home.awg.installation.content') }}</p>
-          <a href="https://amnezia.org/downloads" title="AmneziaVPN Downloads" target="_blank"
-            rel="noopener noreferrer" class="mt-auto btn btn-primary btn-sm align-self-start">{{ $t('home.awg.installation.button') }}</a>
+          <!-- Per-platform direct download buttons. We deliberately
+               link to the native AmneziaWG clients (not the full
+               AmneziaVPN suite) since this portal only manages AWG. -->
+          <div class="mt-auto">
+            <div class="btn-group btn-group-sm" role="group" :aria-label="$t('home.awg.installation.platforms-label')">
+              <a href="https://apps.apple.com/app/amneziawg/id6478942365" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="iOS / iPadOS / macOS">
+                <i class="fab fa-apple me-1"></i>iOS / macOS
+              </a>
+              <a href="https://play.google.com/store/apps/details?id=org.amnezia.awg" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="Android">
+                <i class="fab fa-android me-1"></i>Android
+              </a>
+              <a href="https://github.com/amnezia-vpn/amneziawg-windows-client/releases" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="Windows">
+                <i class="fab fa-windows me-1"></i>Windows
+              </a>
+            </div>
+            <div class="mt-2">
+              <a href="https://docs.amnezia.org/documentation/amnezia-wg/#native-amneziawg-clients" target="_blank"
+                 rel="noopener noreferrer" class="small">
+                {{ $t('home.awg.installation.button-other') }}
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

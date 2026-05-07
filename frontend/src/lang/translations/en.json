@@ -74,16 +74,17 @@
     "awg": {
       "section-header": "AmneziaWG (DPI-resistant)",
       "installation": {
-        "box-header": "AmneziaVPN Installation",
-        "headline": "Install the AmneziaVPN client",
-        "content": "Use this for peers on an \"awg\" interface. The AmneziaVPN client app speaks the AmneziaWG protocol with traffic-obfuscation parameters baked in. The vanilla WireGuard app cannot connect to AmneziaWG endpoints.",
-        "button": "Open Downloads"
+        "box-header": "AmneziaWG Client Installation",
+        "headline": "Install an AmneziaWG client",
+        "content": "Use this for peers on an \"awg\" interface. AmneziaWG has dedicated native clients for each platform — pick yours below. The full AmneziaVPN suite is a separate product; this portal manages AmneziaWG only, so use the AmneziaWG-specific apps. Vanilla WireGuard apps cannot connect to AmneziaWG endpoints.",
+        "platforms-label": "Per-platform AmneziaWG client downloads",
+        "button-other": "Other platforms / source builds →"
       },
       "about": {
         "box-header": "About AmneziaWG",
         "headline": "About",
         "content": "AmneziaWG is a WireGuard fork that mimics random-looking traffic via Jc/Jmin/Jmax junk packets, S1-S4 packet stuffing, and H1-H4 header magic substitution to evade DPI fingerprinting.",
-        "button": "More"
+        "button": "Protocol source"
       }
     },
     "about-portal": {
@@ -580,7 +581,8 @@
       "copy-failed": "Failed to copy configuration",
       "qr-download-failed": "QR not ready yet — try again in a moment",
       "qr-too-large-headline": "Config too long for a scannable QR code",
-      "qr-too-large-body": "This configuration is {size} bytes, exceeding the {max}-byte safe limit for QR scanning. Use the Download button below to import the .conf file directly."
+      "qr-too-large-body": "This configuration is {size} bytes, exceeding the {max}-byte safe limit for QR scanning. Use the Download button below to import the .conf file directly.",
+      "client-app-other-platforms": "other platforms"
     },
     "peer-edit": {
       "headline-edit-peer": "Edit peer:",

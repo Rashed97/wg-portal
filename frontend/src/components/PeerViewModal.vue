@@ -83,14 +83,41 @@ const configStyle = ref("wgquick")
 
 // Client-app helper for the QR-code download flow. Maps the server-side
 // interface backend → the canonical client app the user needs to import
-// the .conf into. AmneziaWG-backed interfaces require the AmneziaVPN
-// client (vanilla WireGuard apps cannot complete the handshake because
-// of the obfuscated H1-H4 magic bytes); plain WG-backed interfaces use
-// the standard WireGuard client. A null return hides the inline link.
+// the .conf into. AmneziaWG-backed interfaces require the dedicated
+// AmneziaWG client (NOT the full AmneziaVPN suite — different product).
+// Vanilla WG clients can't complete the handshake against awg endpoints
+// because of the obfuscated H1-H4 magic substitution. Per-platform
+// detection picks the most-likely-correct download link based on
+// userAgent; a "see all" fallback links to the AmneziaWG client docs.
+function detectClientPlatform() {
+  const ua = (navigator.userAgent || '').toLowerCase()
+  if (/iphone|ipad|ipod|macintosh/.test(ua)) return 'apple'
+  if (/android/.test(ua)) return 'android'
+  if (/windows/.test(ua)) return 'windows'
+  return null
+}
+
+const awgClientLinks = {
+  apple: { label: 'iOS / iPadOS / macOS', url: 'https://apps.apple.com/app/amneziawg/id6478942365' },
+  android: { label: 'Android', url: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' },
+  windows: { label: 'Windows', url: 'https://github.com/amnezia-vpn/amneziawg-windows-client/releases' },
+}
+
 const clientAppLink = computed(() => {
   if (selectedInterface.value.Mode === 'client') return null
   if (selectedInterface.value.Backend === 'amneziawg') {
-    return { name: 'AmneziaVPN', url: 'https://amnezia.org/downloads' }
+    const plat = detectClientPlatform()
+    if (plat && awgClientLinks[plat]) {
+      return {
+        name: 'AmneziaWG for ' + awgClientLinks[plat].label,
+        url: awgClientLinks[plat].url,
+        fallbackUrl: 'https://docs.amnezia.org/documentation/amnezia-wg/#native-amneziawg-clients',
+      }
+    }
+    return {
+      name: 'AmneziaWG client',
+      url: 'https://docs.amnezia.org/documentation/amnezia-wg/#native-amneziawg-clients',
+    }
   }
   return { name: 'WireGuard', url: 'https://www.wireguard.com/install/' }
 })
@@ -287,6 +314,16 @@ function ConfigQrUrl() {
                   <p v-if="clientAppLink" class="small text-muted mt-2 mb-0 text-center">
                     {{ $t('modals.peer-view.client-app-prompt') }}
                     <a :href="clientAppLink.url" target="_blank" rel="noopener noreferrer">{{ clientAppLink.name }}</a>
+                    <!-- Detected-platform link is a guess; show a small
+                         "other platforms" escape hatch so a user on
+                         e.g. Linux or who has multiple devices can find
+                         the full client matrix. Hidden when there's no
+                         distinct fallback (i.e., we already showed the
+                         docs page as the primary). -->
+                    <span v-if="clientAppLink.fallbackUrl">
+                      &middot;
+                      <a :href="clientAppLink.fallbackUrl" target="_blank" rel="noopener noreferrer">{{ $t('modals.peer-view.client-app-other-platforms') }}</a>
+                    </span>
                   </p>
                 </div>
                 <!-- Config text column -->
