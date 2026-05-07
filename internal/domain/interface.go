@@ -269,7 +269,8 @@ func (p *PhysicalInterface) SetExtras(extras any) {
 	switch extras.(type) {
 	case MikrotikInterfaceExtras: // OK
 	case PfsenseInterfaceExtras: // OK
-	default: // we only support MikrotikInterfaceExtras and PfsenseInterfaceExtras for now
+	case AmneziaInterfaceExtras: // OK
+	default:
 		panic(fmt.Sprintf("unsupported interface backend extras type %T", extras))
 	}
 
@@ -340,6 +341,15 @@ func ConvertPhysicalInterface(pi *PhysicalInterface) *Interface {
 		} else {
 			iface.Disabled = nil
 		}
+	case ControllerTypeAmnezia:
+		extras := pi.GetExtras().(AmneziaInterfaceExtras)
+		// AmneziaWG has no comment field; display name keeps the interface
+		// identifier the kernel reports. Disabled state mirrors WireGuard.
+		if extras.Disabled {
+			iface.Disabled = &now
+		} else {
+			iface.Disabled = nil
+		}
 	}
 
 	return iface
@@ -367,6 +377,18 @@ func MergeToPhysicalInterface(pi *PhysicalInterface, i *Interface) {
 			Comment:  i.DisplayName,
 			Disabled: i.IsDisabled(),
 		}
+		pi.SetExtras(extras)
+	case ControllerTypeAmnezia:
+		// Preserve any AWG params set by the controller (Jc/Jmin/Jmax/S1-S4/H1-H4/I1-I5)
+		// — those round-trip through the controller adapter, not via the
+		// interface's user-editable fields. We only update the Disabled flag
+		// here based on the user's intent.
+		var extras AmneziaInterfaceExtras
+		if existing, ok := pi.GetExtras().(AmneziaInterfaceExtras); ok {
+			extras = existing
+		}
+		extras.Id = string(i.Identifier)
+		extras.Disabled = i.IsDisabled()
 		pi.SetExtras(extras)
 	}
 }

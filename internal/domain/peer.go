@@ -241,7 +241,8 @@ func (p *PhysicalPeer) SetExtras(extras any) {
 	case MikrotikPeerExtras: // OK
 	case LocalPeerExtras: // OK
 	case PfsensePeerExtras: // OK
-	default: // we only support MikrotikPeerExtras, LocalPeerExtras, and PfsensePeerExtras for now
+	case AmneziaPeerExtras: // OK
+	default:
 		panic(fmt.Sprintf("unsupported peer backend extras type %T", extras))
 	}
 

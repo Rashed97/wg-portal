@@ -48,8 +48,39 @@ func (c *ControllerManager) init() error {
 		return err
 	}
 
+	// AmneziaWG is registered best-effort: if amneziawg-tools (`awg` /
+	// `awg-quick`) is not installed on the host, NewAmneziaController
+	// returns an error and we skip registration rather than fail boot.
+	// Hosts that need AmneziaWG support install the tools + DKMS module
+	// per the deployment runbook (BNet-o9ou).
+	if err := c.registerAmneziaController(); err != nil {
+		slog.Info("AmneziaWG controller not registered (amneziawg-tools missing or unusable); skipping",
+			"reason", err)
+	}
+
 	c.logRegisteredControllers()
 
+	return nil
+}
+
+// registerAmneziaController creates exactly one AmneziaController instance
+// (registered under the reserved backend ID config.AmneziawgBackendName)
+// when amneziawg-tools is available on the host. Like LocalController, it's
+// a singleton local-host controller — no per-instance config block is
+// needed in v1, so we don't require a slice in config.Backend.
+func (c *ControllerManager) registerAmneziaController() error {
+	amneziaController, err := wgcontroller.NewAmneziaController(c.cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create AmneziaWG controller: %w", err)
+	}
+
+	c.controllers[config.AmneziawgBackendName] = backendInstance{
+		Config: config.BackendBase{
+			Id:          config.AmneziawgBackendName,
+			DisplayName: "AmneziaWG (local)",
+		},
+		Implementation: amneziaController,
+	}
 	return nil
 }
 

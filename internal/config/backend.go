@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-const LocalBackendName = "local"
+const (
+	LocalBackendName     = "local"
+	AmneziawgBackendName = "amneziawg"
+)
 
 type Backend struct {
 	Default string `yaml:"default"` // The default backend to use (defaults to the internal backend)
