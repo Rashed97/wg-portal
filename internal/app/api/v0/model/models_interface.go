@@ -130,6 +130,16 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 	}
 
 	if src.AmneziaExtras != nil {
+		// Defensive normalization for I1-I5: the awg-tools dump emits the
+		// literal "(null)" for unset fields, and rows persisted by older
+		// builds (before parseAwgHexField) have that literal stored in DB.
+		// Translate at the DTO boundary so the UI never sees "(null)".
+		nullToEmpty := func(s string) string {
+			if s == "(null)" {
+				return ""
+			}
+			return s
+		}
 		iface.AmneziaWG = &AmneziaWGParams{
 			Jc:   src.AmneziaExtras.Jc,
 			Jmin: src.AmneziaExtras.Jmin,
@@ -142,11 +152,11 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 			H2:   src.AmneziaExtras.H2,
 			H3:   src.AmneziaExtras.H3,
 			H4:   src.AmneziaExtras.H4,
-			I1:   src.AmneziaExtras.I1,
-			I2:   src.AmneziaExtras.I2,
-			I3:   src.AmneziaExtras.I3,
-			I4:   src.AmneziaExtras.I4,
-			I5:   src.AmneziaExtras.I5,
+			I1:   nullToEmpty(src.AmneziaExtras.I1),
+			I2:   nullToEmpty(src.AmneziaExtras.I2),
+			I3:   nullToEmpty(src.AmneziaExtras.I3),
+			I4:   nullToEmpty(src.AmneziaExtras.I4),
+			I5:   nullToEmpty(src.AmneziaExtras.I5),
 		}
 	}
 
