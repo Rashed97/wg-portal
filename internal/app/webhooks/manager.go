@@ -59,6 +59,7 @@ func (m Manager) connectToMessageBus() {
 	}
 
 	_ = m.bus.Subscribe(app.TopicUserCreated, m.handleUserCreateEvent)
+	_ = m.bus.Subscribe(app.TopicUserRegistered, m.handleUserRegisterEvent)
 	_ = m.bus.Subscribe(app.TopicUserUpdated, m.handleUserUpdateEvent)
 	_ = m.bus.Subscribe(app.TopicUserDeleted, m.handleUserDeleteEvent)
 
@@ -103,6 +104,14 @@ func (m Manager) sendWebhook(ctx context.Context, data io.Reader) error {
 
 func (m Manager) handleUserCreateEvent(user domain.User) {
 	m.handleGenericEvent(WebhookEventCreate, models.NewUser(user))
+}
+
+// handleUserRegisterEvent fires on self-service user registration (first
+// OIDC login auto-creates the user record). Surfaces as event=register so
+// downstream webhook consumers can distinguish "user signed up via SSO"
+// from "admin manually created a user" (which fires WebhookEventCreate).
+func (m Manager) handleUserRegisterEvent(user domain.User) {
+	m.handleGenericEvent(WebhookEventRegister, models.NewUser(user))
 }
 
 func (m Manager) handleUserUpdateEvent(user domain.User) {

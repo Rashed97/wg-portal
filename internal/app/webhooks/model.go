@@ -48,4 +48,11 @@ const (
 	WebhookEventDelete     WebhookEvent = "delete"
 	WebhookEventConnect    WebhookEvent = "connect"
 	WebhookEventDisconnect WebhookEvent = "disconnect"
+	// WebhookEventRegister fires on self-service user registration (first
+	// OIDC login auto-creates the user). Distinct from "create" which
+	// represents an admin-initiated user record. Wired to TopicUserRegistered
+	// in webhooks/manager.go so admin-alert webhooks can act on the
+	// "new user just signed up via SSO" event without seeing every
+	// admin-driven user CRUD.
+	WebhookEventRegister WebhookEvent = "register"
 )
