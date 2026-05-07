@@ -551,7 +551,8 @@
       "keepalive": "Persistent Keepalive",
       "button-download": "Download configuration",
       "button-email": "Send configuration via E-Mail",
-      "style-label": "Configuration Style"
+      "style-label": "Configuration Style",
+      "client-app-prompt": "Need a client?"
     },
     "peer-edit": {
       "headline-edit-peer": "Edit peer:",

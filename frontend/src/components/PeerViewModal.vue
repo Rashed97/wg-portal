@@ -81,6 +81,20 @@ const title = computed(() => {
 
 const configStyle = ref("wgquick")
 
+// Client-app helper for the QR-code download flow. Maps the server-side
+// interface backend → the canonical client app the user needs to import
+// the .conf into. AmneziaWG-backed interfaces require the AmneziaVPN
+// client (vanilla WireGuard apps cannot complete the handshake because
+// of the obfuscated H1-H4 magic bytes); plain WG-backed interfaces use
+// the standard WireGuard client. A null return hides the inline link.
+const clientAppLink = computed(() => {
+  if (selectedInterface.value.Mode === 'client') return null
+  if (selectedInterface.value.Backend === 'amneziawg') {
+    return { name: 'AmneziaVPN', url: 'https://amnezia.org/downloads' }
+  }
+  return { name: 'WireGuard', url: 'https://www.wireguard.com/install/' }
+})
+
 watch(() => props.visible, async (newValue, oldValue) => {
   if (oldValue === false && newValue === true) { // if modal is shown
     await peers.LoadPeerConfig(selectedPeer.value.Identifier, configStyle.value)
@@ -174,6 +188,10 @@ function ConfigQrUrl() {
                 </div>
                 <div class="col-md-4" v-if="selectedInterface.Mode !== 'client'">
                   <img class="config-qr-img" :src="ConfigQrUrl()" loading="lazy" alt="Configuration QR Code">
+                  <p v-if="clientAppLink" class="small text-muted mt-2 mb-0 text-center">
+                    {{ $t('modals.peer-view.client-app-prompt') }}
+                    <a :href="clientAppLink.url" target="_blank" rel="noopener noreferrer">{{ clientAppLink.name }}</a>
+                  </p>
                 </div>
               </div>
             </div>
