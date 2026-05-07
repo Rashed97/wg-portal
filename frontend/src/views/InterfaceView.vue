@@ -10,7 +10,7 @@ import {peerStore} from "@/stores/peers";
 import {interfaceStore} from "@/stores/interfaces";
 import {notify} from "@kyvg/vue3-notification";
 import {settingsStore} from "@/stores/settings";
-import {humanFileSize} from '@/helpers/utils';
+import {humanFileSize, humanRelativeTime} from '@/helpers/utils';
 import {useI18n} from "vue-i18n";
 
 const settings = settingsStore()
@@ -452,7 +452,15 @@ onMounted(async () => {
             <span v-if="peer.Disabled" class="text-danger" :title="$t('interfaces.peer-disabled') + ' ' + peer.DisabledReason"><i class="fa fa-circle-xmark"></i></span>
             <span v-if="!peer.Disabled && peer.ExpiresAt" class="text-warning" :title="$t('interfaces.peer-expiring') + ' ' +  peer.ExpiresAt"><i class="fas fa-hourglass-end expiring-peer"></i></span>
           </td>
-          <td><span v-if="peer.DisplayName" :title="peer.Identifier">{{peer.DisplayName}}</span><span v-else :title="peer.Identifier">{{ $filters.truncate(peer.Identifier, 10)}}</span></td>
+          <td>
+            <div>
+              <span v-if="peer.DisplayName" :title="peer.Identifier">{{peer.DisplayName}}</span>
+              <span v-else :title="peer.Identifier">{{ $filters.truncate(peer.Identifier, 10)}}</span>
+            </div>
+            <small v-if="peer.CreatedAt" class="text-muted">
+              <i class="far fa-calendar-alt me-1"></i>{{ humanRelativeTime(peer.CreatedAt, t) }}
+            </small>
+          </td>
           <td><span :title="peer.UserDisplayName">{{peer.UserIdentifier}}</span></td>
           <td>
             <span v-for="ip in peer.Addresses" :key="ip" class="badge bg-light me-1">{{ ip }}</span>

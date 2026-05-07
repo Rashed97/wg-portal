@@ -7,7 +7,7 @@ import { profileStore } from "@/stores/profile";
 import { peerStore } from "@/stores/peers";
 import UserPeerEditModal from "@/components/UserPeerEditModal.vue";
 import { settingsStore } from "@/stores/settings";
-import { humanFileSize } from "@/helpers/utils";
+import { humanFileSize, humanRelativeTime } from "@/helpers/utils";
 
 const settings = settingsStore()
 const profile = profileStore()
@@ -163,8 +163,15 @@ onMounted(async () => {
             <span v-if="!peer.Disabled && peer.ExpiresAt" class="text-warning"><i class="fas fa-hourglass-end"
                 :title="peer.ExpiresAt"></i></span>
           </td>
-          <td><span v-if="peer.DisplayName" :title="peer.Identifier">{{ peer.DisplayName }}</span><span v-else
-              :title="peer.Identifier">{{ $filters.truncate(peer.Identifier, 10) }}</span></td>
+          <td>
+            <div>
+              <span v-if="peer.DisplayName" :title="peer.Identifier">{{ peer.DisplayName }}</span>
+              <span v-else :title="peer.Identifier">{{ $filters.truncate(peer.Identifier, 10) }}</span>
+            </div>
+            <small v-if="peer.CreatedAt" class="text-muted">
+              <i class="far fa-calendar-alt me-1"></i>{{ humanRelativeTime(peer.CreatedAt, t) }}
+            </small>
+          </td>
           <td>
             <span v-for="ip in peer.Addresses" :key="ip" class="badge rounded-pill bg-light">{{ ip }}</span>
           </td>

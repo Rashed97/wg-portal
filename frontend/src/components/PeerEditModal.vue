@@ -10,6 +10,7 @@ import { validateCIDR, validateIP, validateDomain } from '@/helpers/validators';
 import isCidr from "is-cidr";
 import { isIP } from 'is-ip';
 import { freshPeer, freshInterface } from '@/helpers/models';
+import { humanRelativeTime } from '@/helpers/utils';
 import { profileStore } from "@/stores/profile";
 
 const { t } = useI18n()
@@ -48,24 +49,14 @@ const selectedInterface = computed(() => {
   return i
 })
 
-// Human-readable "Created N days ago" text. Returns empty string when the
-// peer has no CreatedAt (new peer) or when the value can't be parsed.
-// Accepts the ISO-8601 string the API now emits via Peer.CreatedAt.
+// Human-readable "Created N days ago" text. Same helper used by the
+// peer-list views so the formatting is consistent everywhere. Empty
+// when the peer has no CreatedAt (new peer / legacy row).
 const createdAgoText = computed(() => {
   const raw = selectedPeer.value && selectedPeer.value.CreatedAt
   if (!raw) return ''
-  const created = new Date(raw)
-  if (isNaN(created.getTime())) return ''
-  const ms = Date.now() - created.getTime()
-  if (ms < 0) return t('modals.peer-edit.created-just-now')
-  const days = Math.floor(ms / 86400000)
-  const hours = Math.floor(ms / 3600000)
-  const minutes = Math.floor(ms / 60000)
-  if (days >= 30) return t('modals.peer-edit.created-on', { date: created.toLocaleDateString() })
-  if (days >= 1) return t('modals.peer-edit.created-days-ago', { n: days })
-  if (hours >= 1) return t('modals.peer-edit.created-hours-ago', { n: hours })
-  if (minutes >= 1) return t('modals.peer-edit.created-minutes-ago', { n: minutes })
-  return t('modals.peer-edit.created-just-now')
+  const ago = humanRelativeTime(raw, t)
+  return ago ? t('modals.peer-edit.created-prefix') + ' ' + ago : ''
 })
 
 const title = computed(() => {

@@ -17,7 +17,14 @@
     "cancel": "Cancel",
     "close": "Close",
     "save": "Save",
-    "delete": "Delete"
+    "delete": "Delete",
+    "time": {
+      "just-now": "just now",
+      "minutes-ago": "{n} minute(s) ago",
+      "hours-ago": "{n} hour(s) ago",
+      "days-ago": "{n} day(s) ago",
+      "on-date": "on {date}"
+    }
   },
   "login": {
     "headline": "Please sign in",
@@ -673,11 +680,7 @@
       "confirm-delete": "Are you sure you want to delete peer '{id}'?",
       "button-suspend-now": "Suspend now",
       "button-activate": "Activate",
-      "created-just-now": "Created moments ago",
-      "created-minutes-ago": "Created {n} minute(s) ago",
-      "created-hours-ago": "Created {n} hour(s) ago",
-      "created-days-ago": "Created {n} day(s) ago",
-      "created-on": "Created on {date}"
+      "created-prefix": "Created"
     },
     "peer-multi-create": {
       "headline-peer": "Create multiple peers",
