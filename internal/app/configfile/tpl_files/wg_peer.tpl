@@ -23,7 +23,7 @@
 
 # Core settings
 PrivateKey = {{ .Peer.Interface.KeyPair.PrivateKey }}
-{{- if eq .Style "wgquick"}}
+{{- if or (eq .Style "wgquick") (eq .Style "amneziawg")}}
 Address = {{ CidrsToString .Peer.Interface.Addresses }}
 {{- end}}
 
