@@ -862,6 +862,89 @@ func (c *AmneziaController) PingAddresses(
 
 // endregion ping
 
+// region wg-quick controller hooks
+//
+// AmneziaController also satisfies the wireguard.WgQuickController
+// interface so the InterfaceManager will: (a) execute PreUp/PostUp/
+// PreDown/PostDown shell hooks defined on the interface, (b) push DNS
+// settings on save for client-mode interfaces. Without these, the
+// interface manager logs a "no capable controller found" warning and
+// silently skips those subsystems for AWG interfaces. Implementations
+// mirror LocalController exactly — both run on the same host, same
+// shell, same resolvconf integration; the kernel module is the only
+// difference, and these hooks don't touch the kernel directly.
+
+// ExecuteInterfaceHook runs a shell command (PreUp/PostUp/PreDown/
+// PostDown) substituting %i with the interface name. Empty hooks are
+// a no-op.
+func (c *AmneziaController) ExecuteInterfaceHook(
+	_ context.Context, id domain.InterfaceIdentifier, hookCmd string,
+) error {
+	if hookCmd == "" {
+		return nil
+	}
+	slog.Debug("amneziawg: executing interface hook", "interface", id, "hook", hookCmd)
+	expanded := strings.ReplaceAll(hookCmd, "%i", string(id))
+	cmd := exec.Command("/bin/sh", "-ce", expanded)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("hook for %s: %w (stderr: %s)",
+			id, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// SetDNS pushes DNS servers / search domains into resolvconf when an
+// AWG client-mode interface comes up. Server-mode interfaces (the
+// typical VPN gateway use case) don't call this path because the
+// pre-save action only fires for InterfaceTypeClient/Any.
+func (c *AmneziaController) SetDNS(
+	_ context.Context, id domain.InterfaceIdentifier, dnsStr, dnsSearchStr string,
+) error {
+	if dnsStr == "" && dnsSearchStr == "" {
+		return nil
+	}
+	var input bytes.Buffer
+	for _, srv := range strings.Split(dnsStr, ",") {
+		if srv = strings.TrimSpace(srv); srv != "" {
+			fmt.Fprintf(&input, "nameserver %s\n", srv)
+		}
+	}
+	for _, search := range strings.Split(dnsSearchStr, ",") {
+		if search = strings.TrimSpace(search); search != "" {
+			fmt.Fprintf(&input, "search %s\n", search)
+		}
+	}
+	cmd := exec.Command("/bin/sh", "-ce",
+		fmt.Sprintf("resolvconf -a %s -m 0 -x", id))
+	cmd.Stdin = &input
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("set dns for %s: %w (stderr: %s; is resolvconf installed?)",
+			id, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// UnsetDNS removes any DNS entries this controller previously installed.
+func (c *AmneziaController) UnsetDNS(
+	_ context.Context, id domain.InterfaceIdentifier, _, _ string,
+) error {
+	cmd := exec.Command("/bin/sh", "-ce", fmt.Sprintf("resolvconf -d %s -f", id))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("unset dns for %s: %w (stderr: %s)",
+			id, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// endregion wg-quick controller hooks
+
 // staticAssertInterface ensures we satisfy the InterfaceController contract
 // at compile time. Removed at link time; serves only as a build-break if
 // the upstream interface evolves.
