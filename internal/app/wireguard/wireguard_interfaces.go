@@ -90,7 +90,14 @@ func (m Manager) GetUserInterfaces(ctx context.Context, userId domain.UserIdenti
 		if iface.IsDisabled() {
 			continue // skip disabled interfaces
 		}
-		if iface.Type != domain.InterfaceTypeServer {
+		// The comment says "skip client interfaces" but the original
+		// !=server check also skipped InterfaceTypeAny — which is the
+		// default Type assigned by ConvertPhysicalInterface on every
+		// auto-imported interface (wg0 happened to be flipped to
+		// "server" manually long ago; new awg0 imports were silently
+		// hidden from the self-service picker). Match the comment's
+		// stated intent: only skip explicit client-mode interfaces.
+		if iface.Type == domain.InterfaceTypeClient {
 			continue // skip client interfaces
 		}
 		if !user.IsAdmin && !iface.IsUserAllowed(userId, m.cfg) {

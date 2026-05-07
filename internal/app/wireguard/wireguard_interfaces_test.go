@@ -216,3 +216,35 @@ func TestManager_GetUserInterfaces_Filtering(t *testing.T) {
 		}
 	})
 }
+
+// TestManager_GetUserInterfaces_AnyTypeIncluded covers the regression
+// where InterfaceTypeAny was being silently filtered out — auto-imported
+// AmneziaWG interfaces are assigned Type=any by ConvertPhysicalInterface
+// and would never appear in the self-service picker without manual
+// operator action to flip Mode to "server". The intent of the filter is
+// to skip CLIENT interfaces only.
+func TestManager_GetUserInterfaces_AnyTypeIncluded(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Core.SelfProvisioningAllowed = true
+
+	db := &mockDB{
+		interfaces: []domain.Interface{
+			{Identifier: "wg0", Type: domain.InterfaceTypeServer},
+			{Identifier: "awg0", Type: domain.InterfaceTypeAny}, // freshly imported
+			{Identifier: "wg_client", Type: domain.InterfaceTypeClient},
+		},
+	}
+	m := Manager{cfg: cfg, db: db}
+
+	ifaces, err := m.GetUserInterfaces(context.Background(), "any_user")
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(ifaces), "expected wg0 + awg0 visible, wg_client filtered")
+
+	got := map[domain.InterfaceIdentifier]bool{}
+	for _, i := range ifaces {
+		got[i.Identifier] = true
+	}
+	assert.True(t, got["wg0"], "server-mode interface must be visible")
+	assert.True(t, got["awg0"], "any-mode interface must be visible (regression: auto-imported AWG interfaces)")
+	assert.False(t, got["wg_client"], "client-mode interface must be hidden")
+}

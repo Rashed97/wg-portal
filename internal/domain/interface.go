@@ -122,6 +122,7 @@ func (i *Interface) PublicInfo() Interface {
 		Identifier:  i.Identifier,
 		DisplayName: i.DisplayName,
 		Type:        i.Type,
+		Backend:     i.Backend, // surfaces "amneziawg" vs "local" so the UI can badge AWG interfaces
 		Disabled:    i.Disabled,
 	}
 }
