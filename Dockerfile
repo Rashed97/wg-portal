@@ -80,11 +80,14 @@ ENV TZ=UTC
 # Copy binaries
 COPY --from=builder /build/dist/wg-portal /app/wg-portal
 # Copy amneziawg userspace tools into PATH so AmneziaController can
-# locate them via exec.LookPath. awg-quick is bash-script style and
-# expects 'awg' in /usr/bin.
-COPY --from=amneziawg-tools-builder /build/src/awg /usr/bin/awg
+# locate them via exec.LookPath. The amneziawg-tools build emits a
+# single `wg` binary that dispatches on argv[0] — installing it as
+# /usr/bin/awg makes it act as the awg CLI. awg-quick is the linux
+# bash variant of the wg-quick wrapper, supplied separately.
+COPY --from=amneziawg-tools-builder /build/src/wg /usr/bin/awg
 COPY --from=amneziawg-tools-builder /build/src/wg-quick/linux.bash /usr/bin/awg-quick
-RUN chmod +x /usr/bin/awg /usr/bin/awg-quick
+RUN chmod +x /usr/bin/awg /usr/bin/awg-quick \
+    && /usr/bin/awg --version 2>&1 | head -1 || true
 # Set the Current Working Directory inside the container
 WORKDIR /app
 # Expose default ports for metrics, web and wireguard
