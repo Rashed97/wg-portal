@@ -48,23 +48,41 @@
   "home": {
     "headline": "WireGuard® VPN Portal",
     "info-headline": "More Information",
-    "abstract": "WireGuard® is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography. It aims to be faster, simpler, leaner, and more useful than IPsec, while avoiding the massive headache. It intends to be considerably more performant than OpenVPN.",
-    "installation": {
-      "box-header": "WireGuard Installation",
-      "headline": "Installation",
-      "content": "Installation instructions for client software can be found on the official WireGuard website.",
-      "button": "Open Instructions"
+    "abstract": "WireGuard® is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography. AmneziaWG is a WireGuard fork that adds traffic obfuscation, useful in restrictive networks where vanilla WireGuard is fingerprinted or filtered. This portal manages peers for both protocols.",
+    "wg": {
+      "section-header": "Vanilla WireGuard",
+      "installation": {
+        "box-header": "WireGuard Installation",
+        "headline": "Install the WireGuard client",
+        "content": "Use this for peers on a standard \"wg\" interface. Installation instructions for every platform are on the official WireGuard website.",
+        "button": "Open Instructions"
+      },
+      "about": {
+        "box-header": "About WireGuard",
+        "headline": "About",
+        "content": "WireGuard® is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography.",
+        "button": "More"
+      }
     },
-    "about-wg": {
-      "box-header": "About WireGuard",
-      "headline": "About",
-      "content": "WireGuard® is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography.",
-      "button": "More"
+    "awg": {
+      "section-header": "AmneziaWG (DPI-resistant)",
+      "installation": {
+        "box-header": "AmneziaVPN Installation",
+        "headline": "Install the AmneziaVPN client",
+        "content": "Use this for peers on an \"awg\" interface. The AmneziaVPN client app speaks the AmneziaWG protocol with traffic-obfuscation parameters baked in. The vanilla WireGuard app cannot connect to AmneziaWG endpoints.",
+        "button": "Open Downloads"
+      },
+      "about": {
+        "box-header": "About AmneziaWG",
+        "headline": "About",
+        "content": "AmneziaWG is a WireGuard fork that mimics random-looking traffic via Jc/Jmin/Jmax junk packets, S1-S4 packet stuffing, and H1-H4 header magic substitution to evade DPI fingerprinting.",
+        "button": "More"
+      }
     },
     "about-portal": {
       "box-header": "About WireGuard Portal",
       "headline": "WireGuard Portal",
-      "content": "WireGuard Portal is a simple, web based configuration portal for WireGuard.",
+      "content": "WireGuard Portal is a simple, web based configuration portal for WireGuard. This deployment is the bnet/awg fork, which adds an AmneziaWG backend alongside the vanilla wgctrl driver.",
       "button": "More"
     },
     "profiles": {
