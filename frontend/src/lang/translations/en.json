@@ -62,7 +62,8 @@
         "box-header": "WireGuard Installation",
         "headline": "Install the WireGuard client",
         "content": "Use this for peers on a standard \"wg\" interface. Installation instructions for every platform are on the official WireGuard website.",
-        "button": "Open Instructions"
+        "platforms-label": "Per-platform WireGuard client downloads",
+        "button-other": "Other platforms / source / install instructions →"
       },
       "about": {
         "box-header": "About WireGuard",

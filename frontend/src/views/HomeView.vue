@@ -56,8 +56,36 @@ const auth = authStore()
         <div class="card-body d-flex flex-column">
           <h5 class="card-title">{{ $t('home.wg.installation.headline') }}</h5>
           <p class="card-text">{{ $t('home.wg.installation.content') }}</p>
-          <a href="https://www.wireguard.com/install/" title="WireGuard Installation" target="_blank"
-            rel="noopener noreferrer" class="mt-auto btn btn-primary btn-sm align-self-start">{{ $t('home.wg.installation.button') }}</a>
+          <!-- Per-platform direct downloads. iOS and macOS are separate
+               WireGuard apps (different App Store IDs); AWG combines
+               them into a single Apple bundle. Windows installer is a
+               direct .exe; we don't link to the MSI for Microsoft
+               Store managed installs since most users use the .exe. -->
+          <div class="mt-auto">
+            <div class="btn-group btn-group-sm" role="group" :aria-label="$t('home.wg.installation.platforms-label')">
+              <a href="https://itunes.apple.com/us/app/wireguard/id1441195209?ls=1&mt=8" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="iOS / iPadOS">
+                <i class="fab fa-apple me-1"></i>iOS
+              </a>
+              <a href="https://itunes.apple.com/us/app/wireguard/id1451685025?ls=1&mt=12" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="macOS">
+                <i class="fab fa-apple me-1"></i>macOS
+              </a>
+              <a href="https://play.google.com/store/apps/details?id=com.wireguard.android" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="Android">
+                <i class="fab fa-android me-1"></i>Android
+              </a>
+              <a href="https://download.wireguard.com/windows-client/wireguard-installer.exe" target="_blank" rel="noopener noreferrer"
+                 class="btn btn-outline-primary" title="Windows installer (direct .exe download)">
+                <i class="fab fa-windows me-1"></i>Windows
+              </a>
+            </div>
+            <div class="mt-2">
+              <a href="https://www.wireguard.com/install/" target="_blank" rel="noopener noreferrer" class="small">
+                {{ $t('home.wg.installation.button-other') }}
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

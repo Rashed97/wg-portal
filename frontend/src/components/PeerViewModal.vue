@@ -88,38 +88,53 @@ const configStyle = ref("wgquick")
 // Vanilla WG clients can't complete the handshake against awg endpoints
 // because of the obfuscated H1-H4 magic substitution. Per-platform
 // detection picks the most-likely-correct download link based on
-// userAgent; a "see all" fallback links to the AmneziaWG client docs.
+// userAgent; a "see all" fallback links to the canonical install page.
+//
+// AWG bundles iOS/iPadOS/macOS into a single App Store entry; vanilla
+// WG ships separate iOS and macOS apps with different App Store IDs,
+// so detection has to split Apple devices (ios vs macos) for the WG
+// case and combine them again for AWG.
 function detectClientPlatform() {
   const ua = (navigator.userAgent || '').toLowerCase()
-  if (/iphone|ipad|ipod|macintosh/.test(ua)) return 'apple'
+  if (/iphone|ipad|ipod/.test(ua)) return 'ios'
+  if (/macintosh|mac os/.test(ua)) return 'macos'
   if (/android/.test(ua)) return 'android'
   if (/windows/.test(ua)) return 'windows'
   return null
 }
 
 const awgClientLinks = {
-  apple: { label: 'iOS / iPadOS / macOS', url: 'https://apps.apple.com/app/amneziawg/id6478942365' },
-  android: { label: 'Android', url: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' },
-  windows: { label: 'Windows', url: 'https://github.com/amnezia-vpn/amneziawg-windows-client/releases' },
+  ios:     { label: 'iOS / iPadOS', url: 'https://apps.apple.com/app/amneziawg/id6478942365' },
+  macos:   { label: 'macOS',        url: 'https://apps.apple.com/app/amneziawg/id6478942365' },
+  android: { label: 'Android',      url: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' },
+  windows: { label: 'Windows',      url: 'https://github.com/amnezia-vpn/amneziawg-windows-client/releases' },
 }
+const awgFallbackUrl = 'https://docs.amnezia.org/documentation/amnezia-wg/#native-amneziawg-clients'
+
+const wgClientLinks = {
+  ios:     { label: 'iOS / iPadOS', url: 'https://itunes.apple.com/us/app/wireguard/id1441195209?ls=1&mt=8' },
+  macos:   { label: 'macOS',        url: 'https://itunes.apple.com/us/app/wireguard/id1451685025?ls=1&mt=12' },
+  android: { label: 'Android',      url: 'https://play.google.com/store/apps/details?id=com.wireguard.android' },
+  windows: { label: 'Windows',      url: 'https://download.wireguard.com/windows-client/wireguard-installer.exe' },
+}
+const wgFallbackUrl = 'https://www.wireguard.com/install/'
 
 const clientAppLink = computed(() => {
   if (selectedInterface.value.Mode === 'client') return null
-  if (selectedInterface.value.Backend === 'amneziawg') {
-    const plat = detectClientPlatform()
-    if (plat && awgClientLinks[plat]) {
-      return {
-        name: 'AmneziaWG for ' + awgClientLinks[plat].label,
-        url: awgClientLinks[plat].url,
-        fallbackUrl: 'https://docs.amnezia.org/documentation/amnezia-wg/#native-amneziawg-clients',
-      }
-    }
+  const isAwg = selectedInterface.value.Backend === 'amneziawg'
+  const links = isAwg ? awgClientLinks : wgClientLinks
+  const fallback = isAwg ? awgFallbackUrl : wgFallbackUrl
+  const productName = isAwg ? 'AmneziaWG' : 'WireGuard'
+
+  const plat = detectClientPlatform()
+  if (plat && links[plat]) {
     return {
-      name: 'AmneziaWG client',
-      url: 'https://docs.amnezia.org/documentation/amnezia-wg/#native-amneziawg-clients',
+      name: `${productName} for ${links[plat].label}`,
+      url: links[plat].url,
+      fallbackUrl: fallback,
     }
   }
-  return { name: 'WireGuard', url: 'https://www.wireguard.com/install/' }
+  return { name: `${productName} client`, url: fallback }
 })
 
 // 'clean' strips wg-portal's `# -WGP-` metadata comments + blank lines so the
