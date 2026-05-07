@@ -303,6 +303,15 @@ func ConvertPhysicalPeer(pp *PhysicalPeer) *Peer {
 			peer.Disabled = nil
 			peer.DisabledReason = ""
 		}
+	case ControllerTypeAmnezia:
+		extras := pp.GetExtras().(AmneziaPeerExtras)
+		if extras.Disabled {
+			peer.Disabled = &now
+			peer.DisabledReason = "Disabled by AmneziaWG controller"
+		} else {
+			peer.Disabled = nil
+			peer.DisabledReason = ""
+		}
 	case ControllerTypePfsense:
 		extras := pp.GetExtras().(PfsensePeerExtras)
 		peer.Notes = extras.Comment
@@ -374,6 +383,14 @@ func MergeToPhysicalPeer(pp *PhysicalPeer, p *Peer) {
 		pp.SetExtras(extras)
 	case ControllerTypeLocal:
 		extras := LocalPeerExtras{
+			Disabled: p.IsDisabled(),
+		}
+		pp.SetExtras(extras)
+	case ControllerTypeAmnezia:
+		// AmneziaWG peer extras carry only the Disabled flag (AWG params
+		// are interface-wide in current AmneziaWG kernel — no per-peer
+		// state beyond what standard WG already exposes).
+		extras := AmneziaPeerExtras{
 			Disabled: p.IsDisabled(),
 		}
 		pp.SetExtras(extras)
