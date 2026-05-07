@@ -97,6 +97,15 @@ const clientAppLink = computed(() => {
 
 watch(() => props.visible, async (newValue, oldValue) => {
   if (oldValue === false && newValue === true) { // if modal is shown
+    // Default the style toggle to match the interface backend so the
+    // AmneziaWG option is preselected for AWG peers — matches the
+    // server-side auto-promote in configfile/manager.go and makes the
+    // UI honest about what the rendered .conf actually contains.
+    if (selectedInterface.value.Backend === 'amneziawg' && configStyle.value === 'wgquick') {
+      configStyle.value = 'amneziawg'
+    } else if (selectedInterface.value.Backend !== 'amneziawg' && configStyle.value === 'amneziawg') {
+      configStyle.value = 'wgquick'
+    }
     await peers.LoadPeerConfig(selectedPeer.value.Identifier, configStyle.value)
     configString.value = peers.configuration
   }
@@ -147,10 +156,19 @@ function ConfigQrUrl() {
       <div class="d-flex justify-content-end align-items-center mb-1" v-if="selectedInterface.Mode !== 'client'">
         <span class="me-2">{{ $t('modals.peer-view.style-label') }}: </span>
         <div class="btn-group btn-switch-group" role="group" aria-label="Configuration Style">
-          <input type="radio" class="btn-check" name="configstyle" id="raw" value="raw" autocomplete="off" checked="" v-model="configStyle">
+          <input type="radio" class="btn-check" name="configstyle" id="raw" value="raw" autocomplete="off" v-model="configStyle">
           <label class="btn btn-outline-dark btn-sm" for="raw">Raw</label>
-          <input type="radio" class="btn-check" name="configstyle" id="wgquick" value="wgquick" autocomplete="off" checked="" v-model="configStyle">
+          <input type="radio" class="btn-check" name="configstyle" id="wgquick" value="wgquick" autocomplete="off" v-model="configStyle">
           <label class="btn btn-outline-dark btn-sm" for="wgquick">WG-Quick</label>
+          <!-- AmneziaWG style — only meaningful for AWG-backed interfaces.
+               Backend defaults to 'local' for legacy interfaces, so we
+               render this option whenever the backend is explicitly
+               'amneziawg'. Picking it embeds the obfuscation params
+               (Jc/Jmin/Jmax/S1-S4/H1-H4/I1-I5) in the rendered .conf. -->
+          <template v-if="selectedInterface.Backend === 'amneziawg'">
+            <input type="radio" class="btn-check" name="configstyle" id="amneziawg" value="amneziawg" autocomplete="off" v-model="configStyle">
+            <label class="btn btn-outline-dark btn-sm" for="amneziawg">AmneziaWG</label>
+          </template>
         </div>
       </div>
       <div class="accordion" id="peerInformation">
