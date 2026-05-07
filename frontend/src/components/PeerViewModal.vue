@@ -95,6 +95,51 @@ const clientAppLink = computed(() => {
   return { name: 'WireGuard', url: 'https://www.wireguard.com/install/' }
 })
 
+// 'clean' strips wg-portal's `# -WGP-` metadata comments + blank lines so the
+// displayed/copied config matches what a user would type by hand. 'full'
+// shows everything the API returns (with metadata comments).
+const configView = ref('full')
+
+const displayedConfig = computed(() => {
+  if (!configString.value) return ''
+  if (configView.value === 'full') return configString.value
+  return configString.value
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('#'))
+    .filter((line, idx, arr) => !(line === '' && (idx === 0 || arr[idx - 1] === '')))
+    .join('\n')
+})
+
+async function copyConfig() {
+  try {
+    await navigator.clipboard.writeText(displayedConfig.value)
+    notify({ title: t('modals.peer-view.copy-success'), type: 'success' })
+  } catch (e) {
+    notify({ title: t('modals.peer-view.copy-failed'), text: e.toString(), type: 'error' })
+  }
+}
+
+// Renders the QR <img> onto a canvas and triggers a PNG download. Avoids
+// a server round-trip — same QR the modal already shows. Falls back
+// gracefully if the image hasn't loaded yet (img.naturalWidth=0).
+function downloadQrPng() {
+  const img = document.querySelector('.config-qr-img')
+  if (!img || !img.naturalWidth) {
+    notify({ title: t('modals.peer-view.qr-download-failed'), type: 'warn' })
+    return
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = img.naturalWidth
+  canvas.height = img.naturalHeight
+  canvas.getContext('2d').drawImage(img, 0, 0)
+  const a = document.createElement('a')
+  a.href = canvas.toDataURL('image/png')
+  a.download = (selectedPeer.value.Filename || 'peer').replace(/\.conf$/, '') + '-qr.png'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 watch(() => props.visible, async (newValue, oldValue) => {
   if (oldValue === false && newValue === true) { // if modal is shown
     // Default the style toggle to match the interface backend so the
@@ -182,34 +227,55 @@ function ConfigQrUrl() {
           <div id="collapseDetails" class="accordion-collapse collapse show" aria-labelledby="headingDetails"
             data-bs-parent="#peerInformation" style="">
             <div class="accordion-body">
-              <div class="row">
-                <div :class="{ 'col-md-8': selectedInterface.Mode !== 'client',  'col-md-12': selectedInterface.Mode !== 'server' }" class="col-md-8">
-                  <ul>
-                    <li v-if="selectedInterface.Mode !== 'client'"><strong>{{ $t('modals.peer-view.identifier') }}</strong>: {{ selectedPeer.PublicKey }}</li>
-                    <li v-if="selectedInterface.Mode !== 'server'"><strong>{{ $t('modals.peer-view.endpoint-key') }}</strong>: {{ selectedPeer.PublicKey }}</li>
-                    <li v-if="selectedInterface.Mode !== 'server'"><strong>{{ $t('modals.peer-view.endpoint') }}</strong>: {{ selectedPeer.Endpoint.Value }}</li>
-                    <li v-if="selectedInterface.Mode !== 'client'"><strong>{{ $t('modals.peer-view.ip') }}</strong>: <span v-for="ip in selectedPeer.Addresses" :key="ip"
-                        class="badge rounded-pill bg-light">{{ ip }}</span></li>
-                    <li v-if="selectedInterface.Mode === 'server'"><strong>{{ $t('modals.peer-view.extra-allowed-ip') }}</strong>: <span v-for="ip in selectedPeer.ExtraAllowedIPs" :key="ip"
-                                                                                                                        class="badge rounded-pill bg-light">{{ ip }}</span></li>
-                    <li v-if="selectedInterface.Mode !== 'server' && selectedPeer.AllowedIPs.Value"><strong>{{ $t('modals.peer-view.allowed-ip') }}</strong>: <span v-for="ip in selectedPeer.AllowedIPs.Value" :key="ip"
-                                                                                                          class="badge rounded-pill bg-light">{{ ip }}</span></li>
-                    <li v-if="selectedInterface.Mode !== 'server'"><strong>{{ $t('modals.peer-view.keepalive') }}</strong>: {{ selectedPeer.PersistentKeepalive.Value }}</li>
-                    <li v-if="selectedPeer.UserDisplayName"><strong>{{ $t('modals.peer-view.user') }}</strong>: {{ selectedPeer.UserDisplayName }} ({{ selectedPeer.UserIdentifier }})</li>
-                    <li v-else><strong>{{ $t('modals.peer-view.user') }}</strong>: {{ selectedPeer.UserIdentifier }}</li>
-                    <li v-if="selectedPeer.Notes"><strong>{{ $t('modals.peer-view.notes') }}</strong>: {{ selectedPeer.Notes }}</li>
-                    <li v-if="selectedPeer.ExpiresAt"><strong>{{ $t('modals.peer-view.expiry-status') }}</strong>: {{
-                      selectedPeer.ExpiresAt }}</li>
-                    <li v-if="selectedPeer.Disabled"><strong>{{ $t('modals.peer-view.disabled-status') }}</strong>: {{
-                      selectedPeer.DisabledReason }}</li>
-                  </ul>
-                </div>
-                <div class="col-md-4" v-if="selectedInterface.Mode !== 'client'">
+              <!-- Peer details (full width) — list of identifiers, IPs, etc. -->
+              <ul>
+                <li v-if="selectedInterface.Mode !== 'client'"><strong>{{ $t('modals.peer-view.identifier') }}</strong>: {{ selectedPeer.PublicKey }}</li>
+                <li v-if="selectedInterface.Mode !== 'server'"><strong>{{ $t('modals.peer-view.endpoint-key') }}</strong>: {{ selectedPeer.PublicKey }}</li>
+                <li v-if="selectedInterface.Mode !== 'server'"><strong>{{ $t('modals.peer-view.endpoint') }}</strong>: {{ selectedPeer.Endpoint.Value }}</li>
+                <li v-if="selectedInterface.Mode !== 'client'"><strong>{{ $t('modals.peer-view.ip') }}</strong>: <span v-for="ip in selectedPeer.Addresses" :key="ip"
+                    class="badge rounded-pill bg-light">{{ ip }}</span></li>
+                <li v-if="selectedInterface.Mode === 'server'"><strong>{{ $t('modals.peer-view.extra-allowed-ip') }}</strong>: <span v-for="ip in selectedPeer.ExtraAllowedIPs" :key="ip"
+                                                                                                                    class="badge rounded-pill bg-light">{{ ip }}</span></li>
+                <li v-if="selectedInterface.Mode !== 'server' && selectedPeer.AllowedIPs.Value"><strong>{{ $t('modals.peer-view.allowed-ip') }}</strong>: <span v-for="ip in selectedPeer.AllowedIPs.Value" :key="ip"
+                                                                                                      class="badge rounded-pill bg-light">{{ ip }}</span></li>
+                <li v-if="selectedInterface.Mode !== 'server'"><strong>{{ $t('modals.peer-view.keepalive') }}</strong>: {{ selectedPeer.PersistentKeepalive.Value }}</li>
+                <li v-if="selectedPeer.UserDisplayName"><strong>{{ $t('modals.peer-view.user') }}</strong>: {{ selectedPeer.UserDisplayName }} ({{ selectedPeer.UserIdentifier }})</li>
+                <li v-else><strong>{{ $t('modals.peer-view.user') }}</strong>: {{ selectedPeer.UserIdentifier }}</li>
+                <li v-if="selectedPeer.Notes"><strong>{{ $t('modals.peer-view.notes') }}</strong>: {{ selectedPeer.Notes }}</li>
+                <li v-if="selectedPeer.ExpiresAt"><strong>{{ $t('modals.peer-view.expiry-status') }}</strong>: {{
+                  selectedPeer.ExpiresAt }}</li>
+                <li v-if="selectedPeer.Disabled"><strong>{{ $t('modals.peer-view.disabled-status') }}</strong>: {{
+                  selectedPeer.DisabledReason }}</li>
+              </ul>
+
+              <!-- QR + config side-by-side panel (server-mode peers only) -->
+              <div v-if="selectedInterface.Mode !== 'client'" class="row mt-3">
+                <!-- QR column -->
+                <div class="col-lg-5 d-flex flex-column align-items-center mb-3">
                   <img class="config-qr-img" :src="ConfigQrUrl()" loading="lazy" alt="Configuration QR Code">
+                  <button type="button" class="btn btn-outline-secondary btn-sm mt-2" @click.prevent="downloadQrPng">
+                    <i class="fas fa-download me-1"></i>{{ $t('modals.peer-view.button-download-qr') }}
+                  </button>
                   <p v-if="clientAppLink" class="small text-muted mt-2 mb-0 text-center">
                     {{ $t('modals.peer-view.client-app-prompt') }}
                     <a :href="clientAppLink.url" target="_blank" rel="noopener noreferrer">{{ clientAppLink.name }}</a>
                   </p>
+                </div>
+                <!-- Config text column -->
+                <div class="col-lg-7">
+                  <div class="d-flex align-items-center mb-2">
+                    <strong class="me-2">{{ $t('modals.peer-view.config-label') }}</strong>
+                    <div class="btn-group btn-switch-group ms-auto me-2" role="group" aria-label="Config view">
+                      <input type="radio" class="btn-check" id="cfg-clean" value="clean" v-model="configView" autocomplete="off">
+                      <label class="btn btn-outline-dark btn-sm" for="cfg-clean">{{ $t('modals.peer-view.config-clean') }}</label>
+                      <input type="radio" class="btn-check" id="cfg-full" value="full" v-model="configView" autocomplete="off">
+                      <label class="btn btn-outline-dark btn-sm" for="cfg-full">{{ $t('modals.peer-view.config-full') }}</label>
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" :title="$t('modals.peer-view.button-copy')" @click.prevent="copyConfig">
+                      <i class="fas fa-clipboard"></i>
+                    </button>
+                  </div>
+                  <Prism language="ini" :code="displayedConfig" class="config-side-by-side"></Prism>
                 </div>
               </div>
             </div>
@@ -243,20 +309,9 @@ function ConfigQrUrl() {
             </div>
           </div>
         </div>
-        <div v-if="selectedInterface.Mode !== 'client'" class="accordion-item">
-          <h2 class="accordion-header" id="headingConfig">
-            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-              data-bs-target="#collapseConfig" aria-expanded="false" aria-controls="collapseConfig">
-              {{ $t('modals.peer-view.section-config') }}
-            </button>
-          </h2>
-          <div id="collapseConfig" class="accordion-collapse collapse" aria-labelledby="headingConfig"
-            data-bs-parent="#peerInformation" style="">
-            <div class="accordion-body">
-              <Prism language="ini" :code="configString"></Prism>
-            </div>
-          </div>
-        </div>
+        <!-- The legacy 'Configuration' accordion section is removed. The
+             config text now lives next to the QR in the Information
+             section above, with a Clean/Full toggle and a Copy button. -->
       </div>
     </template>
     <template #footer>
@@ -281,5 +336,17 @@ function ConfigQrUrl() {
   border-width: 1px;
   padding: 5px;
   line-height: 1;
+}
+
+/* Side-by-side config panel: keep the code block from blowing the
+   modal out when the config is long (esp. AmneziaWG with I1-I5). */
+.config-side-by-side {
+  max-height: 22rem;
+  overflow: auto;
+  font-size: 0.85rem;
+  margin: 0;
+}
+.config-side-by-side pre {
+  margin: 0;
 }
 </style>

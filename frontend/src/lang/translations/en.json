@@ -552,7 +552,15 @@
       "button-download": "Download configuration",
       "button-email": "Send configuration via E-Mail",
       "style-label": "Configuration Style",
-      "client-app-prompt": "Need a client?"
+      "client-app-prompt": "Need a client?",
+      "button-download-qr": "Download QR (PNG)",
+      "button-copy": "Copy config to clipboard",
+      "config-label": "Configuration",
+      "config-clean": "Clean",
+      "config-full": "Full",
+      "copy-success": "Configuration copied to clipboard",
+      "copy-failed": "Failed to copy configuration",
+      "qr-download-failed": "QR not ready yet — try again in a moment"
     },
     "peer-edit": {
       "headline-edit-peer": "Edit peer:",
