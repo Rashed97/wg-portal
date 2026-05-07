@@ -43,9 +43,24 @@ export function freshInterface() {
     PeerDefPreDown: "",
     PeerDefPostDown: "",
 
+    // AmneziaWG V2 obfuscation parameters. Only meaningful when Backend ===
+    // 'amneziawg'. Server side returns null for non-AWG interfaces; we keep
+    // a fully-zeroed default here so the form bindings always have something
+    // to point at and the API DTO round-trips cleanly.
+    AmneziaWG: freshAmneziaWG(),
+
     TotalPeers: 0,
     EnabledPeers: 0,
     Filename: ""
+  }
+}
+
+export function freshAmneziaWG() {
+  return {
+    Jc: 0, Jmin: 0, Jmax: 0,
+    S1: 0, S2: 0, S3: 0, S4: 0,
+    H1: 0, H2: 0, H3: 0, H4: 0,
+    I1: "", I2: "", I3: "", I4: "", I5: "",
   }
 }
 

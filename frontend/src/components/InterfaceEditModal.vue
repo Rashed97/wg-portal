@@ -8,7 +8,7 @@ import { VueTagsInput } from '@vojtechlanka/vue-tags-input';
 import { validateCIDR, validateIP, validateDomain } from '@/helpers/validators';
 import isCidr from "is-cidr";
 import {isIP} from 'is-ip';
-import { freshInterface } from '@/helpers/models';
+import { freshInterface, freshAmneziaWG } from '@/helpers/models';
 import {peerStore} from "@/stores/peers";
 import {settingsStore} from "@/stores/settings";
 
@@ -118,6 +118,7 @@ watch(() => props.visible, async (newValue, oldValue) => {
           formData.value.PeerDefPostUp = interfaces.Prepared.PeerDefPostUp
           formData.value.PeerDefPreDown = interfaces.Prepared.PeerDefPreDown
           formData.value.PeerDefPostDown = interfaces.Prepared.PeerDefPostDown
+          formData.value.AmneziaWG = interfaces.Prepared.AmneziaWG || freshAmneziaWG()
         } else { // fill existing userdata
           formData.value.Disabled = selectedInterface.value.Disabled
           formData.value.Identifier = selectedInterface.value.Identifier
@@ -158,7 +159,10 @@ watch(() => props.visible, async (newValue, oldValue) => {
           formData.value.PeerDefPostUp = selectedInterface.value.PeerDefPostUp
           formData.value.PeerDefPreDown = selectedInterface.value.PeerDefPreDown
           formData.value.PeerDefPostDown = selectedInterface.value.PeerDefPostDown
-
+          // AmneziaWG params: server returns null for non-AWG backends; we
+          // keep a fully-zeroed default so binding never fails. The
+          // AWG-specific fieldset is hidden unless Backend === 'amneziawg'.
+          formData.value.AmneziaWG = selectedInterface.value.AmneziaWG || freshAmneziaWG()
         }
       }
     }
@@ -168,6 +172,89 @@ function close() {
   formData.value = freshInterface()
   emit('close')
 }
+
+// AmneziaWG parameter constraints. Recommended ranges from
+// github.com/amnezia-vpn/amneziawg-go README + practical experience.
+// Each entry: { min, max, recommended: [lo, hi], description }.
+const awgParamSpec = {
+  Jc: { min: 0, max: 128, recommended: [3, 10], description: 'Junk packet count (sent before each handshake)', type: 'int' },
+  Jmin: { min: 0, max: 1280, recommended: [50, 100], description: 'Junk packet minimum size (bytes)', type: 'int' },
+  Jmax: { min: 0, max: 1280, recommended: [200, 1000], description: 'Junk packet maximum size (bytes); must exceed Jmin', type: 'int' },
+  S1: { min: 0, max: 150, recommended: [15, 150], description: 'Init packet stuffing (bytes prepended to handshake init); cannot be 0 if S2 is set', type: 'int' },
+  S2: { min: 0, max: 150, recommended: [15, 150], description: 'Response packet stuffing (bytes prepended to handshake response)', type: 'int' },
+  S3: { min: 0, max: 1280, recommended: [50, 200], description: 'V2 init padding (extra bytes inside handshake init); 0 = disabled', type: 'int' },
+  S4: { min: 0, max: 1280, recommended: [100, 300], description: 'V2 response padding (extra bytes inside handshake response); 0 = disabled', type: 'int' },
+  H1: { min: 5, max: 4294967295, recommended: [5, 1147483647], description: 'Init magic header (replaces vanilla WG type=1). Must differ from H2-H4 and be > 4', type: 'uint32' },
+  H2: { min: 5, max: 4294967295, recommended: [5, 1147483647], description: 'Response magic header (replaces vanilla WG type=2). Must differ from H1, H3, H4', type: 'uint32' },
+  H3: { min: 5, max: 4294967295, recommended: [5, 1147483647], description: 'Cookie magic header (replaces vanilla WG type=3). Must differ from H1, H2, H4', type: 'uint32' },
+  H4: { min: 5, max: 4294967295, recommended: [5, 1147483647], description: 'Data magic header (replaces vanilla WG type=4). Must differ from H1-H3', type: 'uint32' },
+  I1: { description: 'V2 packet-injection bytes (hex string). Empty = disabled.', type: 'hex' },
+  I2: { description: 'V2 packet-injection bytes (hex string). Empty = disabled.', type: 'hex' },
+  I3: { description: 'V2 packet-injection bytes (hex string). Empty = disabled.', type: 'hex' },
+  I4: { description: 'V2 packet-injection bytes (hex string). Empty = disabled.', type: 'hex' },
+  I5: { description: 'V2 packet-injection bytes (hex string). Empty = disabled.', type: 'hex' },
+}
+
+// Live validation of the AmneziaWG fieldset. Runs on every form-data
+// change (computed, no manual trigger). Returns an object keyed by
+// param ID → error message string, or null when the field is OK.
+const awgValidationErrors = computed(() => {
+  if (formData.value.Backend !== 'amneziawg') return {}
+  const a = formData.value.AmneziaWG || {}
+  const errors = {}
+
+  // Jmin < Jmax sanity (Jmax may be 0 to disable junk; if both > 0, Jmin must be < Jmax)
+  if (a.Jmax > 0 && a.Jmin >= a.Jmax) {
+    errors.Jmin = errors.Jmax = 'Jmin must be < Jmax (or both 0 to disable junk packets)'
+  }
+
+  // S1 != 0 when S2 != 0 (enforced by Amnezia, S1=0 with S2>0 is rejected)
+  if (a.S2 > 0 && a.S1 === 0) {
+    errors.S1 = 'S1 must be > 0 when S2 is set'
+  }
+
+  // S1 + 56 != S2 — Amnezia recommends this to avoid collisions (56 bytes = WG init payload)
+  if (a.S1 > 0 && a.S2 > 0 && a.S1 + 56 === a.S2) {
+    errors.S1 = errors.S2 = 'S1 + 56 must not equal S2 (causes packet-size collision with WG init)'
+  }
+
+  // H1-H4 uniqueness + > 4 (1-4 reserved for vanilla WG message types)
+  const hVals = [a.H1, a.H2, a.H3, a.H4]
+  hVals.forEach((v, i) => {
+    const k = `H${i + 1}`
+    if (v !== 0 && v < 5) {
+      errors[k] = `${k} must be > 4 (1-4 are reserved for vanilla WireGuard message types)`
+    }
+  })
+  if (hVals.filter(v => v > 0).length > 0) {
+    const seen = new Map()
+    hVals.forEach((v, i) => {
+      if (v === 0) return
+      if (seen.has(v)) {
+        const k = `H${i + 1}`
+        errors[k] = `${k} duplicates ${seen.get(v)}; H1-H4 must all differ`
+      } else {
+        seen.set(v, `H${i + 1}`)
+      }
+    })
+  }
+
+  // I1-I5 must be valid hex strings (or empty)
+  for (const k of ['I1', 'I2', 'I3', 'I4', 'I5']) {
+    const v = (a[k] || '').trim()
+    if (v && !/^[0-9a-fA-F]+$/.test(v)) {
+      errors[k] = `${k} must be a hex string (0-9, a-f) or empty`
+    } else if (v && v.length % 2 !== 0) {
+      errors[k] = `${k} hex string must have an even number of characters (whole bytes)`
+    }
+  }
+
+  return errors
+})
+
+const hasAwgValidationErrors = computed(() => {
+  return Object.keys(awgValidationErrors.value).length > 0
+})
 
 function handleChangeAddresses(tags) {
   let validInput = true
@@ -264,6 +351,16 @@ function handleChangePeerDefDnsSearch(tags) {
 
 async function save() {
   if (isSaving.value) return
+  // Hard-block submit when AmneziaWG validation fails — easy round-trip
+  // saver vs. having the kernel reject the write at MergeToPhysicalInterface.
+  if (hasAwgValidationErrors.value) {
+    notify({
+      title: t('modals.interface-edit.amneziawg-validation-failed-title'),
+      text: t('modals.interface-edit.amneziawg-validation-failed-body'),
+      type: 'error',
+    })
+    return
+  }
   isSaving.value = true
   try {
     if (props.interfaceId!=='#NEW#') {
@@ -465,6 +562,77 @@ async function del() {
               </div>
             </div>
           </fieldset>
+
+          <!-- AmneziaWG V2 obfuscation parameters. Hidden unless backend
+               selected as 'amneziawg'. Each input has an inline tooltip
+               (title=) summarizing the param + recommended range, and a
+               red error span below when client-side validation fails. -->
+          <fieldset v-if="formData.Backend==='amneziawg'">
+            <legend class="mt-4">{{ $t('modals.interface-edit.header-amneziawg') }}</legend>
+            <p class="text-muted small">{{ $t('modals.interface-edit.amneziawg-description') }}</p>
+
+            <!-- Junk packets row -->
+            <div class="row">
+              <div class="form-group col-md-4">
+                <label class="form-label mt-3">Jc <i class="fas fa-question-circle text-muted small" :title="awgParamSpec.Jc.description"></i></label>
+                <input v-model.number="formData.AmneziaWG.Jc" type="number" :min="awgParamSpec.Jc.min" :max="awgParamSpec.Jc.max"
+                       :class="['form-control', awgValidationErrors.Jc ? 'is-invalid' : '']"
+                       :placeholder="`${awgParamSpec.Jc.recommended[0]}–${awgParamSpec.Jc.recommended[1]}`">
+                <div v-if="awgValidationErrors.Jc" class="invalid-feedback">{{ awgValidationErrors.Jc }}</div>
+              </div>
+              <div class="form-group col-md-4">
+                <label class="form-label mt-3">Jmin <i class="fas fa-question-circle text-muted small" :title="awgParamSpec.Jmin.description"></i></label>
+                <input v-model.number="formData.AmneziaWG.Jmin" type="number" :min="awgParamSpec.Jmin.min" :max="awgParamSpec.Jmin.max"
+                       :class="['form-control', awgValidationErrors.Jmin ? 'is-invalid' : '']"
+                       :placeholder="`${awgParamSpec.Jmin.recommended[0]}–${awgParamSpec.Jmin.recommended[1]}`">
+                <div v-if="awgValidationErrors.Jmin" class="invalid-feedback">{{ awgValidationErrors.Jmin }}</div>
+              </div>
+              <div class="form-group col-md-4">
+                <label class="form-label mt-3">Jmax <i class="fas fa-question-circle text-muted small" :title="awgParamSpec.Jmax.description"></i></label>
+                <input v-model.number="formData.AmneziaWG.Jmax" type="number" :min="awgParamSpec.Jmax.min" :max="awgParamSpec.Jmax.max"
+                       :class="['form-control', awgValidationErrors.Jmax ? 'is-invalid' : '']"
+                       :placeholder="`${awgParamSpec.Jmax.recommended[0]}–${awgParamSpec.Jmax.recommended[1]}`">
+                <div v-if="awgValidationErrors.Jmax" class="invalid-feedback">{{ awgValidationErrors.Jmax }}</div>
+              </div>
+            </div>
+
+            <!-- Packet stuffing row (S1-S4) -->
+            <div class="row">
+              <div class="form-group col-md-3" v-for="key in ['S1','S2','S3','S4']" :key="key">
+                <label class="form-label mt-3">{{ key }} <i class="fas fa-question-circle text-muted small" :title="awgParamSpec[key].description"></i></label>
+                <input v-model.number="formData.AmneziaWG[key]" type="number" :min="awgParamSpec[key].min" :max="awgParamSpec[key].max"
+                       :class="['form-control', awgValidationErrors[key] ? 'is-invalid' : '']"
+                       :placeholder="`${awgParamSpec[key].recommended[0]}–${awgParamSpec[key].recommended[1]}`">
+                <div v-if="awgValidationErrors[key]" class="invalid-feedback">{{ awgValidationErrors[key] }}</div>
+              </div>
+            </div>
+
+            <!-- Header magic row (H1-H4) -->
+            <div class="row">
+              <div class="form-group col-md-3" v-for="key in ['H1','H2','H3','H4']" :key="key">
+                <label class="form-label mt-3">{{ key }} <i class="fas fa-question-circle text-muted small" :title="awgParamSpec[key].description"></i></label>
+                <input v-model.number="formData.AmneziaWG[key]" type="number" :min="awgParamSpec[key].min" :max="awgParamSpec[key].max"
+                       :class="['form-control', awgValidationErrors[key] ? 'is-invalid' : '']"
+                       placeholder="random uint32 > 4">
+                <div v-if="awgValidationErrors[key]" class="invalid-feedback">{{ awgValidationErrors[key] }}</div>
+              </div>
+            </div>
+
+            <!-- Injection bytes row (I1-I5) — V2 only, hex strings -->
+            <div class="row">
+              <div class="form-group col-md-12 mt-3">
+                <p class="text-muted small mb-1">{{ $t('modals.interface-edit.amneziawg-i-description') }}</p>
+              </div>
+              <div class="form-group col-md-12" v-for="key in ['I1','I2','I3','I4','I5']" :key="key">
+                <label class="form-label mt-2">{{ key }} <i class="fas fa-question-circle text-muted small" :title="awgParamSpec[key].description"></i></label>
+                <input v-model="formData.AmneziaWG[key]" type="text" maxlength="200"
+                       :class="['form-control font-monospace', awgValidationErrors[key] ? 'is-invalid' : '']"
+                       placeholder="hex string (e.g. deadbeef) — empty to disable">
+                <div v-if="awgValidationErrors[key]" class="invalid-feedback">{{ awgValidationErrors[key] }}</div>
+              </div>
+            </div>
+          </fieldset>
+
           <fieldset v-if="formData.Backend==='local'">
             <legend class="mt-4">{{ $t('modals.interface-edit.header-hooks') }}</legend>
             <div class="form-group">
