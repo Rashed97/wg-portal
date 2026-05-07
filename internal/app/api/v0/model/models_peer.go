@@ -75,6 +75,8 @@ type Peer struct {
 	PreDown  ConfigOption[string] `json:"PreDown"`  // action that is executed before the device is down
 	PostDown ConfigOption[string] `json:"PostDown"` // action that is executed after the device is down
 
+	CreatedAt string `json:"CreatedAt,omitempty"` // ISO-8601 creation timestamp; surfaced for the "Created N days ago" UI badge
+
 	// Calculated values
 
 	Filename string `json:"Filename"` // the filename of the config file, for example: wg_peer_x.conf
@@ -111,6 +113,10 @@ func NewPeer(src *domain.Peer) *Peer {
 		PreDown:             ConfigOptionFromDomain(src.Interface.PreDown),
 		PostDown:            ConfigOptionFromDomain(src.Interface.PostDown),
 		Filename:            src.GetConfigFileName(),
+	}
+
+	if !src.BaseModel.CreatedAt.IsZero() {
+		p.CreatedAt = src.BaseModel.CreatedAt.Format(time.RFC3339)
 	}
 
 	if src.User != nil {

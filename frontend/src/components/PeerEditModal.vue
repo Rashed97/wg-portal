@@ -48,6 +48,26 @@ const selectedInterface = computed(() => {
   return i
 })
 
+// Human-readable "Created N days ago" text. Returns empty string when the
+// peer has no CreatedAt (new peer) or when the value can't be parsed.
+// Accepts the ISO-8601 string the API now emits via Peer.CreatedAt.
+const createdAgoText = computed(() => {
+  const raw = selectedPeer.value && selectedPeer.value.CreatedAt
+  if (!raw) return ''
+  const created = new Date(raw)
+  if (isNaN(created.getTime())) return ''
+  const ms = Date.now() - created.getTime()
+  if (ms < 0) return t('modals.peer-edit.created-just-now')
+  const days = Math.floor(ms / 86400000)
+  const hours = Math.floor(ms / 3600000)
+  const minutes = Math.floor(ms / 60000)
+  if (days >= 30) return t('modals.peer-edit.created-on', { date: created.toLocaleDateString() })
+  if (days >= 1) return t('modals.peer-edit.created-days-ago', { n: days })
+  if (hours >= 1) return t('modals.peer-edit.created-hours-ago', { n: hours })
+  if (minutes >= 1) return t('modals.peer-edit.created-minutes-ago', { n: minutes })
+  return t('modals.peer-edit.created-just-now')
+})
+
 const title = computed(() => {
   if (!props.visible) {
     return "" // otherwise interfaces.GetSelected will die...
@@ -458,6 +478,12 @@ async function del() {
       </fieldset>
       <fieldset>
         <legend class="mt-4">{{ $t('modals.peer-edit.header-state') }}</legend>
+        <!-- "Created N days ago" badge — only rendered for existing peers
+             where the API returned a non-zero CreatedAt. Useful for
+             admins triaging long-lived peers vs. recently-created ones. -->
+        <p v-if="createdAgoText" class="text-muted small mb-2">
+          <i class="far fa-calendar-alt me-1"></i>{{ createdAgoText }}
+        </p>
         <div class="row">
           <div class="form-group col-md-6">
             <div class="form-check form-switch">

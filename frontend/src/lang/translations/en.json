@@ -671,7 +671,12 @@
       },
       "confirm-delete": "Are you sure you want to delete peer '{id}'?",
       "button-suspend-now": "Suspend now",
-      "button-activate": "Activate"
+      "button-activate": "Activate",
+      "created-just-now": "Created moments ago",
+      "created-minutes-ago": "Created {n} minute(s) ago",
+      "created-hours-ago": "Created {n} hour(s) ago",
+      "created-days-ago": "Created {n} day(s) ago",
+      "created-on": "Created on {date}"
     },
     "peer-multi-create": {
       "headline-peer": "Create multiple peers",
