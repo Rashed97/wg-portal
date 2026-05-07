@@ -33,12 +33,20 @@ export const profileStore = defineStore('profile', {
     FilteredPeerCount: (state) => state.FilteredPeers.length,
     Peers: (state) => state.peers,
     FilteredPeers: (state) => {
-      if (!state.filter) {
-        return state.peers
+      let list = state.peers
+      // Apply interface dropdown filter (the dropdown sits next to the
+      // peer list, so users naturally expect it to filter). Empty
+      // selectedInterfaceId or '__all__' means "show all interfaces".
+      if (state.selectedInterfaceId && state.selectedInterfaceId !== '__all__') {
+        list = list.filter(p => p.InterfaceIdentifier === state.selectedInterfaceId)
       }
-      return state.peers.filter((p) => {
-        return p.DisplayName.includes(state.filter) || p.Identifier.includes(state.filter)
-      })
+      // Then apply text-filter
+      if (state.filter) {
+        list = list.filter((p) => {
+          return p.DisplayName.includes(state.filter) || p.Identifier.includes(state.filter)
+        })
+      }
+      return list
     },
     Sorted: (state) => {
       return state.FilteredPeers.slice().sort((a, b) => {
@@ -122,7 +130,17 @@ export const profileStore = defineStore('profile', {
     },
     setInterfaces(interfaces) {
       this.interfaces = interfaces
-      this.selectedInterfaceId = interfaces.length > 0 ? interfaces[0].Identifier : ""
+      // Default to '__all__' when the user has access to multiple
+      // interfaces — keeps the historical "show everything" behavior
+      // while making the filter explicit. If only one interface, use
+      // that as the selection so the '+' button stays enabled.
+      if (interfaces.length === 0) {
+        this.selectedInterfaceId = ''
+      } else if (interfaces.length === 1) {
+        this.selectedInterfaceId = interfaces[0].Identifier
+      } else if (!this.selectedInterfaceId || !interfaces.some(i => i.Identifier === this.selectedInterfaceId)) {
+        this.selectedInterfaceId = '__all__'
+      }
       this.fetching = false
     },
     async enableApi() {

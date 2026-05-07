@@ -206,7 +206,8 @@
     "peer-connected": "Connected",
     "button-add-peer": "Add Peer",
     "button-show-peer": "Show Peer",
-    "button-edit-peer": "Edit Peer"
+    "button-edit-peer": "Edit Peer",
+    "all-interfaces": "All interfaces"
   },
   "settings": {
     "headline": "Settings",

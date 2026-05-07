@@ -95,11 +95,17 @@ onMounted(async () => {
     <div class="col-12 col-lg-3 text-lg-end" v-if="settings.Setting('SelfProvisioning') && profile.CountInterfaces>0">
       <div class="form-group">
         <div class="input-group mb-3">
-          <button class="btn btn-primary" :title="$t('interfaces.button-add-peer')" @click.prevent="editPeerId = '#NEW#'">
+          <button class="btn btn-primary" :title="$t('interfaces.button-add-peer')"
+                  :disabled="profile.selectedInterfaceId === '__all__'"
+                  @click.prevent="editPeerId = '#NEW#'">
             <i class="fa fa-plus me-1"></i><i class="fa fa-user"></i>
           </button>
-          <select v-model="profile.selectedInterfaceId" :disabled="profile.CountInterfaces===0" class="form-select">
+          <select v-model="profile.selectedInterfaceId" :disabled="profile.CountInterfaces===0" class="form-select"
+                  @change="profile.afterPageSizeChange">
             <option v-if="profile.CountInterfaces===0" value="nothing">{{ $t('interfaces.no-interface.default-selection') }}</option>
+            <!-- '__all__' = show peers from every interface; the '+' button
+                 disables itself in this state since theres no target iface. -->
+            <option v-if="profile.CountInterfaces > 1" value="__all__">{{ $t('profile.all-interfaces') }}</option>
             <option v-for="iface in profile.interfaces" :key="iface.Identifier" :value="iface.Identifier">{{ friendlyInterfaceName(iface.Identifier,iface.DisplayName) }}</option>
           </select>
         </div>
