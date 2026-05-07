@@ -210,18 +210,24 @@ func (m Manager) GetPeerConfig(ctx context.Context, id domain.PeerIdentifier, st
 			peer.InterfaceIdentifier, id, err)
 	}
 
-	// Auto-promote style: if caller asked for the default wg-quick style but
-	// the server interface is AWG-backed, escalate to ConfigStyleAmneziaWG
-	// so the AWG params end up in the .conf. A vanilla wg client harmlessly
-	// ignores the extra AWG fields, while an AWG client requires them.
-	// Callers that explicitly want raw or vanilla wg-quick (e.g., diag) can
-	// still pass those styles through unchanged.
+	style = m.promoteStyleForBackend(style, serverIface)
+	return m.tplHandler.GetPeerConfig(peer, serverIface, style)
+}
+
+// promoteStyleForBackend escalates the default wg-quick style to
+// amneziawg when the server interface is AWG-backed. Both the .conf
+// download path and the QR-code path call this — without it the client
+// either silently fails the handshake (AWG kernel rejects packets with
+// vanilla WG message types) or imports a config that's missing the
+// obfuscation params. Explicit styles (raw, or amneziawg already, or a
+// caller's deliberate wgquick for diagnostics-via-API) pass through
+// unchanged — only the default wgquick is escalated.
+func (m Manager) promoteStyleForBackend(style string, serverIface *domain.Interface) string {
 	if style == domain.ConfigStyleWgQuick && serverIface != nil &&
 		string(serverIface.Backend) == config.AmneziawgBackendName {
-		style = domain.ConfigStyleAmneziaWG
+		return domain.ConfigStyleAmneziaWG
 	}
-
-	return m.tplHandler.GetPeerConfig(peer, serverIface, style)
+	return style
 }
 
 // GetPeerConfigQrCode returns a QR code image containing the configuration for the given peer.
@@ -240,6 +246,13 @@ func (m Manager) GetPeerConfigQrCode(ctx context.Context, id domain.PeerIdentifi
 		return nil, fmt.Errorf("failed to fetch server interface %s for peer %s: %w",
 			peer.InterfaceIdentifier, id, err)
 	}
+	// Same auto-promote as GetPeerConfig: an AWG-backed server interface
+	// requires the AWG obfuscation params in the rendered .conf or the
+	// client kernel module silently drops the handshake. The QR code
+	// path is the most user-visible (mobile import flow), so the bug
+	// here strands every iPhone import that scans the default QR.
+	style = m.promoteStyleForBackend(style, serverIface)
+
 	cfgData, err := m.tplHandler.GetPeerConfig(peer, serverIface, style)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get peer config for %s: %w", id, err)
