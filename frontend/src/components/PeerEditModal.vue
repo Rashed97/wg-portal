@@ -468,11 +468,40 @@ async function del() {
               <input class="form-check-input" type="checkbox" v-model="formData.IgnoreGlobalSettings">
               <label class="form-check-label">{{ $t('modals.peer-edit.ignore-global.label') }}</label>
             </div>
+            <!-- "Suspend now / Activate" — wraps the existing Disabled flag
+                 with one-click buttons that don't require navigating the
+                 form to find the checkbox. Distinct semantically from
+                 "Delete" (which removes the peer record entirely). -->
+            <div class="mt-2">
+              <button v-if="!formData.Disabled" type="button" class="btn btn-warning btn-sm me-2"
+                      @click.prevent="formData.Disabled = true">
+                <i class="fas fa-pause me-1"></i>{{ $t('modals.peer-edit.button-suspend-now') }}
+              </button>
+              <button v-else type="button" class="btn btn-success btn-sm me-2"
+                      @click.prevent="formData.Disabled = false">
+                <i class="fas fa-play me-1"></i>{{ $t('modals.peer-edit.button-activate') }}
+              </button>
+            </div>
           </div>
           <div class="form-group col-md-6">
+            <!-- ExpiresAt now uses datetime-local for minute granularity
+                 instead of date-only — useful for "suspend at 5pm friday"
+                 type scheduled disables. Server stores ISO8601; the
+                 datetime-local input emits YYYY-MM-DDTHH:MM which is a
+                 valid prefix the API parses fine. -->
             <label class="form-label">{{ $t('modals.peer-edit.expires-at.label') }}</label>
-            <input type="date" pattern="\d{4}-\d{2}-\d{2}" class="form-control" min="2023-01-01"
-              v-model="formData.ExpiresAt">
+            <input type="datetime-local" class="form-control" v-model="formData.ExpiresAt">
+            <div v-if="formData.ExpiresAt" class="d-flex align-items-center mt-1">
+              <small class="text-muted flex-fill">
+                <i class="far fa-clock me-1"></i>{{ $t('modals.peer-edit.expires-at.scheduled-prefix') }}
+                {{ new Date(formData.ExpiresAt).toLocaleString() }}
+              </small>
+              <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+                      @click.prevent="formData.ExpiresAt = ''"
+                      :title="$t('modals.peer-edit.expires-at.clear')">
+                <i class="fas fa-times-circle"></i> {{ $t('modals.peer-edit.expires-at.clear') }}
+              </button>
+            </div>
           </div>
         </div>
       </fieldset>

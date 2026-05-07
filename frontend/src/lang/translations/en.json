@@ -663,9 +663,13 @@
         "label": "Ignore global settings"
       },
       "expires-at": {
-        "label": "Expiry date"
+        "label": "Expiry date",
+        "scheduled-prefix": "Scheduled to suspend at:",
+        "clear": "Clear"
       },
-      "confirm-delete": "Are you sure you want to delete peer '{id}'?"
+      "confirm-delete": "Are you sure you want to delete peer '{id}'?",
+      "button-suspend-now": "Suspend now",
+      "button-activate": "Activate"
     },
     "peer-multi-create": {
       "headline-peer": "Create multiple peers",
