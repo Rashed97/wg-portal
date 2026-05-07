@@ -48,11 +48,39 @@ type Interface struct {
 	PeerDefPreDown  string `json:"PeerDefPreDown"`  // default action that is executed before the device is down
 	PeerDefPostDown string `json:"PeerDefPostDown"` // default action that is executed after the device is down
 
+	// AmneziaWG V2 obfuscation parameters (only meaningful when Backend ==
+	// "amneziawg"). Always emitted; client renders an extra panel when
+	// Backend is amneziawg and these are editable.
+	AmneziaWG *AmneziaWGParams `json:"AmneziaWG,omitempty"`
+
 	// Calculated values
 
 	EnabledPeers int    `json:"EnabledPeers"`
 	TotalPeers   int    `json:"TotalPeers"`
 	Filename     string `json:"Filename"` // the filename of the config file, for example: wg0.conf
+}
+
+// AmneziaWGParams is the JSON-friendly view of domain.AmneziaInterfaceExtras.
+type AmneziaWGParams struct {
+	Jc   int `json:"Jc"`
+	Jmin int `json:"Jmin"`
+	Jmax int `json:"Jmax"`
+
+	S1 int `json:"S1"`
+	S2 int `json:"S2"`
+	S3 int `json:"S3"`
+	S4 int `json:"S4"`
+
+	H1 uint32 `json:"H1"`
+	H2 uint32 `json:"H2"`
+	H3 uint32 `json:"H3"`
+	H4 uint32 `json:"H4"`
+
+	I1 string `json:"I1"`
+	I2 string `json:"I2"`
+	I3 string `json:"I3"`
+	I4 string `json:"I4"`
+	I5 string `json:"I5"`
 }
 
 func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
@@ -99,6 +127,27 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 
 	if iface.Backend == "" {
 		iface.Backend = config.LocalBackendName // default to local backend
+	}
+
+	if src.AmneziaExtras != nil {
+		iface.AmneziaWG = &AmneziaWGParams{
+			Jc:   src.AmneziaExtras.Jc,
+			Jmin: src.AmneziaExtras.Jmin,
+			Jmax: src.AmneziaExtras.Jmax,
+			S1:   src.AmneziaExtras.S1,
+			S2:   src.AmneziaExtras.S2,
+			S3:   src.AmneziaExtras.S3,
+			S4:   src.AmneziaExtras.S4,
+			H1:   src.AmneziaExtras.H1,
+			H2:   src.AmneziaExtras.H2,
+			H3:   src.AmneziaExtras.H3,
+			H4:   src.AmneziaExtras.H4,
+			I1:   src.AmneziaExtras.I1,
+			I2:   src.AmneziaExtras.I2,
+			I3:   src.AmneziaExtras.I3,
+			I4:   src.AmneziaExtras.I4,
+			I5:   src.AmneziaExtras.I5,
+		}
 	}
 
 	if len(peers) > 0 {
@@ -177,6 +226,28 @@ func NewDomainInterface(src *Interface) *domain.Interface {
 
 	if src.Disabled {
 		res.Disabled = &now
+	}
+
+	if src.AmneziaWG != nil {
+		res.AmneziaExtras = &domain.AmneziaInterfaceExtras{
+			Id:   src.Identifier,
+			Jc:   src.AmneziaWG.Jc,
+			Jmin: src.AmneziaWG.Jmin,
+			Jmax: src.AmneziaWG.Jmax,
+			S1:   src.AmneziaWG.S1,
+			S2:   src.AmneziaWG.S2,
+			S3:   src.AmneziaWG.S3,
+			S4:   src.AmneziaWG.S4,
+			H1:   src.AmneziaWG.H1,
+			H2:   src.AmneziaWG.H2,
+			H3:   src.AmneziaWG.H3,
+			H4:   src.AmneziaWG.H4,
+			I1:   src.AmneziaWG.I1,
+			I2:   src.AmneziaWG.I2,
+			I3:   src.AmneziaWG.I3,
+			I4:   src.AmneziaWG.I4,
+			I5:   src.AmneziaWG.I5,
+		}
 	}
 
 	return res
