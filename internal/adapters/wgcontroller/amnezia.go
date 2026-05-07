@@ -245,11 +245,16 @@ func parseAwgInterfaceDumpLine(line string) (*awgInterfaceDump, error) {
 	d.H2 = parseUint32OrZero(f[11])
 	d.H3 = parseUint32OrZero(f[12])
 	d.H4 = parseUint32OrZero(f[13])
-	d.I1 = f[14]
-	d.I2 = f[15]
-	d.I3 = f[16]
-	d.I4 = f[17]
-	d.I5 = f[18]
+	// I1-I5: `awg show <iface> dump` emits the literal "(null)" for unset
+	// hex injection strings (live capture from amneziawg-tools v1.0.20210914
+	// against kernel 1.0.20251009). Translate to empty string so the value
+	// round-trips correctly through MergeToPhysicalInterface — otherwise
+	// "(null)" gets re-pushed to the kernel as a literal I1=… value.
+	d.I1 = parseAwgHexField(f[14])
+	d.I2 = parseAwgHexField(f[15])
+	d.I3 = parseAwgHexField(f[16])
+	d.I4 = parseAwgHexField(f[17])
+	d.I5 = parseAwgHexField(f[18])
 	d.FwMark = parseFwMark(f[19])
 
 	return d, nil
@@ -311,6 +316,20 @@ func parseUint32OrZero(s string) uint32 {
 	}
 	v, _ := strconv.ParseUint(s, 10, 32)
 	return uint32(v)
+}
+
+// parseAwgHexField cleans up the hex/string injection-point fields
+// (I1-I5) emitted by `awg show <iface> dump`. The amneziawg-tools dump
+// uses the literal string "(null)" for unset values; we translate that
+// to "" so the value round-trips through MergeToPhysicalInterface
+// without being re-pushed to the kernel as the literal text "(null)".
+// Whitespace is also trimmed defensively.
+func parseAwgHexField(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "(null)" || s == "off" {
+		return ""
+	}
+	return s
 }
 
 func parseFwMark(s string) uint32 {

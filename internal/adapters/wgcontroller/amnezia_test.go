@@ -92,6 +92,32 @@ func TestParseAwgInterfaceDumpLine_V1Fallback(t *testing.T) {
 	}
 }
 
+// TestParseAwgInterfaceDumpLine_NullInjectionFields covers the actual
+// dump format emitted by amneziawg-tools v1.0.20210914 + kernel module
+// 1.0.20251009 — empty I1-I5 fields come through as the literal text
+// "(null)", not as empty strings. Captured live from awg0 on
+// vpn-01.iad1 on 2026-05-07.
+func TestParseAwgInterfaceDumpLine_NullInjectionFields(t *testing.T) {
+	line := strings.Join([]string{
+		"gMpWvKnFeJOagYZrH1Iw/NFg3els8KQbQjMFXzWQRXo=",
+		"g3c6nBeVn0+LxThk3HimQC83ShXQi/5dUFahIWFoJQA=",
+		"41195",
+		"5", "50", "500",
+		"50", "100", "100", "200",
+		"2165515563", "3412279543", "1965624963", "1621859483",
+		"(null)", "(null)", "(null)", "(null)", "(null)",
+		"off",
+	}, "\t")
+	d, err := parseAwgInterfaceDumpLine(line)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d.I1 != "" || d.I2 != "" || d.I3 != "" || d.I4 != "" || d.I5 != "" {
+		t.Errorf("'(null)' should normalize to empty string, got: I1=%q I2=%q I3=%q I4=%q I5=%q",
+			d.I1, d.I2, d.I3, d.I4, d.I5)
+	}
+}
+
 // TestParseAwgInterfaceDumpLine_FwMarkHex covers a hex-encoded fwmark
 // (awg outputs "0x4e24" style for non-zero marks).
 func TestParseAwgInterfaceDumpLine_FwMarkHex(t *testing.T) {
