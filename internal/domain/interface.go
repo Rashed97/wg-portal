@@ -81,6 +81,14 @@ type Interface struct {
 
 	// Self-provisioning access control
 	LdapAllowedUsers map[string][]UserIdentifier `gorm:"serializer:json"` // Materialised during LDAP sync, keyed by ProviderName
+
+	// AmneziaWG V2 obfuscation params (Jc, Jmin, Jmax, S1-S4, H1-H4, I1-I5),
+	// only meaningful when Backend == AmneziawgBackendName. Persisted as
+	// JSON so future protocol-version additions don't require schema
+	// migrations. Operator-editable in the InterfaceEditModal; embedded
+	// into peer .conf downloads at GetPeerConfig time so client and
+	// server share the same obfuscation pattern.
+	AmneziaExtras *AmneziaInterfaceExtras `gorm:"serializer:json"`
 }
 
 // IsUserAllowed returns true if the interface has no filter, or if the user is in the allowed list.
@@ -350,6 +358,11 @@ func ConvertPhysicalInterface(pi *PhysicalInterface) *Interface {
 		} else {
 			iface.Disabled = nil
 		}
+		// Carry AWG obfuscation params onto the user-facing Interface so
+		// they round-trip through the DB and end up in peer .conf
+		// downloads.
+		extrasCopy := extras
+		iface.AmneziaExtras = &extrasCopy
 	}
 
 	return iface
@@ -379,13 +392,13 @@ func MergeToPhysicalInterface(pi *PhysicalInterface, i *Interface) {
 		}
 		pi.SetExtras(extras)
 	case ControllerTypeAmnezia:
-		// Preserve any AWG params set by the controller (Jc/Jmin/Jmax/S1-S4/H1-H4/I1-I5)
-		// — those round-trip through the controller adapter, not via the
-		// interface's user-editable fields. We only update the Disabled flag
-		// here based on the user's intent.
+		// AWG params come from the user-editable Interface.AmneziaExtras
+		// (which is what the operator set in the UI / DB). The Disabled
+		// flag is also user intent. Anything else (e.g., Id) is kernel-
+		// derived and may already be on PhysicalInterface.
 		var extras AmneziaInterfaceExtras
-		if existing, ok := pi.GetExtras().(AmneziaInterfaceExtras); ok {
-			extras = existing
+		if i.AmneziaExtras != nil {
+			extras = *i.AmneziaExtras
 		}
 		extras.Id = string(i.Identifier)
 		extras.Disabled = i.IsDisabled()

@@ -524,7 +524,10 @@ func (e PeerEndpoint) handleStatsGet() http.HandlerFunc {
 
 func (e PeerEndpoint) getConfigStyle(r *http.Request) string {
 	configStyle := request.QueryDefault(r, "style", domain.ConfigStyleWgQuick)
-	if configStyle != domain.ConfigStyleWgQuick && configStyle != domain.ConfigStyleRaw {
+	switch configStyle {
+	case domain.ConfigStyleWgQuick, domain.ConfigStyleRaw, domain.ConfigStyleAmneziaWG:
+		// Allowed
+	default:
 		configStyle = domain.ConfigStyleWgQuick // default to wg-quick style
 	}
 	return configStyle

@@ -46,7 +46,10 @@ type TemplateRenderer interface {
 	// GetInterfaceConfig returns the configuration file for the given interface.
 	GetInterfaceConfig(iface *domain.Interface, peers []domain.Peer) (io.Reader, error)
 	// GetPeerConfig returns the configuration file for the given peer.
-	GetPeerConfig(peer *domain.Peer, style string) (io.Reader, error)
+	// serverIface is the server-side Interface this peer connects to —
+	// required so the template can embed AmneziaWG obfuscation params
+	// when style == ConfigStyleAmneziaWG. Pass nil for non-AWG flows.
+	GetPeerConfig(peer *domain.Peer, serverIface *domain.Interface, style string) (io.Reader, error)
 }
 
 type EventBus interface {
@@ -185,7 +188,7 @@ func (m Manager) GetInterfaceConfig(ctx context.Context, id domain.InterfaceIden
 }
 
 // GetPeerConfig returns the configuration file for the given peer.
-// The file is structured in wg-quick format.
+// The file is structured in wg-quick (or AmneziaWG-extended wg-quick) format.
 func (m Manager) GetPeerConfig(ctx context.Context, id domain.PeerIdentifier, style string) (io.Reader, error) {
 	peer, err := m.wg.GetPeer(ctx, id)
 	if err != nil {
@@ -196,7 +199,29 @@ func (m Manager) GetPeerConfig(ctx context.Context, id domain.PeerIdentifier, st
 		return nil, err
 	}
 
-	return m.tplHandler.GetPeerConfig(peer, style)
+	// Fetch the server interface so the template can embed backend-specific
+	// extras (currently: AmneziaWG obfuscation params Jc/Jmin/Jmax/S1-S4/
+	// H1-H4/I1-I5). Server-side AWG params must match on both ends of the
+	// tunnel, so they get copied into the [Interface] section of the
+	// downloaded peer config.
+	serverIface, _, err := m.wg.GetInterfaceAndPeers(ctx, peer.InterfaceIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch server interface %s for peer %s: %w",
+			peer.InterfaceIdentifier, id, err)
+	}
+
+	// Auto-promote style: if caller asked for the default wg-quick style but
+	// the server interface is AWG-backed, escalate to ConfigStyleAmneziaWG
+	// so the AWG params end up in the .conf. A vanilla wg client harmlessly
+	// ignores the extra AWG fields, while an AWG client requires them.
+	// Callers that explicitly want raw or vanilla wg-quick (e.g., diag) can
+	// still pass those styles through unchanged.
+	if style == domain.ConfigStyleWgQuick && serverIface != nil &&
+		string(serverIface.Backend) == config.AmneziawgBackendName {
+		style = domain.ConfigStyleAmneziaWG
+	}
+
+	return m.tplHandler.GetPeerConfig(peer, serverIface, style)
 }
 
 // GetPeerConfigQrCode returns a QR code image containing the configuration for the given peer.
@@ -210,7 +235,12 @@ func (m Manager) GetPeerConfigQrCode(ctx context.Context, id domain.PeerIdentifi
 		return nil, err
 	}
 
-	cfgData, err := m.tplHandler.GetPeerConfig(peer, style)
+	serverIface, _, err := m.wg.GetInterfaceAndPeers(ctx, peer.InterfaceIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch server interface %s for peer %s: %w",
+			peer.InterfaceIdentifier, id, err)
+	}
+	cfgData, err := m.tplHandler.GetPeerConfig(peer, serverIface, style)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get peer config for %s: %w", id, err)
 	}

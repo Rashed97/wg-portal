@@ -63,6 +63,7 @@ const (
 	LockedReasonAdmin = "locked by admin"
 	LockedReasonApi   = "locked by admin"
 
-	ConfigStyleRaw     = "raw"
-	ConfigStyleWgQuick = "wgquick"
+	ConfigStyleRaw       = "raw"
+	ConfigStyleWgQuick   = "wgquick"
+	ConfigStyleAmneziaWG = "amneziawg" // AmneziaWG-flavored wg-quick config (adds Jc/Jmin/Jmax/S1-S4/H1-H4/I1-I5)
 )

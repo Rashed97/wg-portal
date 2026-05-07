@@ -28,7 +28,7 @@ Address = {{ CidrsToString .Peer.Interface.Addresses }}
 {{- end}}
 
 # Misc. settings (optional)
-{{- if eq .Style "wgquick"}}
+{{- if or (eq .Style "wgquick") (eq .Style "amneziawg")}}
 {{- if .Peer.Interface.DnsStr.GetValue}}
 DNS = {{ .Peer.Interface.DnsStr.GetValue }} {{- if .Peer.Interface.DnsSearchStr.GetValue}}, {{ .Peer.Interface.DnsSearchStr.GetValue }} {{- end}}
 {{- end}}
@@ -41,6 +41,62 @@ Table = {{ .Peer.Interface.RoutingTable.GetValue }}
 {{- end}}
 {{- if ne .Peer.Interface.FirewallMark.GetValue 0}}
 FwMark = {{ .Peer.Interface.FirewallMark.GetValue }}
+{{- end}}
+
+{{- if and (eq .Style "amneziawg") .AmneziaExtras }}
+
+# AmneziaWG V2 obfuscation parameters — must match the server-side values.
+# See https://github.com/amnezia-vpn/amneziawg-go for protocol details.
+{{- with .AmneziaExtras }}
+{{- if ne .Jc 0}}
+Jc = {{ .Jc }}
+{{- end}}
+{{- if ne .Jmin 0}}
+Jmin = {{ .Jmin }}
+{{- end}}
+{{- if ne .Jmax 0}}
+Jmax = {{ .Jmax }}
+{{- end}}
+{{- if ne .S1 0}}
+S1 = {{ .S1 }}
+{{- end}}
+{{- if ne .S2 0}}
+S2 = {{ .S2 }}
+{{- end}}
+{{- if ne .S3 0}}
+S3 = {{ .S3 }}
+{{- end}}
+{{- if ne .S4 0}}
+S4 = {{ .S4 }}
+{{- end}}
+{{- if ne .H1 0}}
+H1 = {{ .H1 }}
+{{- end}}
+{{- if ne .H2 0}}
+H2 = {{ .H2 }}
+{{- end}}
+{{- if ne .H3 0}}
+H3 = {{ .H3 }}
+{{- end}}
+{{- if ne .H4 0}}
+H4 = {{ .H4 }}
+{{- end}}
+{{- if ne .I1 ""}}
+I1 = {{ .I1 }}
+{{- end}}
+{{- if ne .I2 ""}}
+I2 = {{ .I2 }}
+{{- end}}
+{{- if ne .I3 ""}}
+I3 = {{ .I3 }}
+{{- end}}
+{{- if ne .I4 ""}}
+I4 = {{ .I4 }}
+{{- end}}
+{{- if ne .I5 ""}}
+I5 = {{ .I5 }}
+{{- end}}
+{{- end}}
 {{- end}}
 
 {{- if eq .Style "wgquick"}}
