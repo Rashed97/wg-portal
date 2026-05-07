@@ -560,7 +560,9 @@
       "config-full": "Full",
       "copy-success": "Configuration copied to clipboard",
       "copy-failed": "Failed to copy configuration",
-      "qr-download-failed": "QR not ready yet — try again in a moment"
+      "qr-download-failed": "QR not ready yet — try again in a moment",
+      "qr-too-large-headline": "Config too long for a scannable QR code",
+      "qr-too-large-body": "This configuration is {size} bytes, exceeding the {max}-byte safe limit for QR scanning. Use the Download button below to import the .conf file directly."
     },
     "peer-edit": {
       "headline-edit-peer": "Edit peer:",

@@ -119,6 +119,17 @@ async function copyConfig() {
   }
 }
 
+// QR-code data capacity check. Byte-mode QR (which wg-portal uses, see
+// configfile/manager.go using EncModeByte) caps out around 2953 bytes
+// at the densest supported version. AmneziaWG configs with non-empty
+// I1-I5 hex strings can exceed this and produce an unscannable QR with
+// no warning. We display a banner + hide the QR above ~2200 bytes (a
+// safety buffer below the absolute max so middling-quality cameras can
+// still scan).
+const qrSafeMaxBytes = 2200
+const configByteLength = computed(() => new Blob([configString.value || '']).size)
+const qrTooLarge = computed(() => configByteLength.value > qrSafeMaxBytes)
+
 // Renders the QR <img> onto a canvas and triggers a PNG download. Avoids
 // a server round-trip — same QR the modal already shows. Falls back
 // gracefully if the image hasn't loaded yet (img.naturalWidth=0).
@@ -250,12 +261,29 @@ function ConfigQrUrl() {
 
               <!-- QR + config side-by-side panel (server-mode peers only) -->
               <div v-if="selectedInterface.Mode !== 'client'" class="row mt-3">
-                <!-- QR column -->
+                <!-- QR column. When the config byte length exceeds what
+                     fits in a scannable QR (~2200 bytes, see
+                     qrSafeMaxBytes), hide the (likely unscannable) image
+                     and show a warning that points at the file
+                     download. Common with AmneziaWG configs that have
+                     non-empty I1-I5 hex injection strings. -->
                 <div class="col-lg-5 d-flex flex-column align-items-center mb-3">
-                  <img class="config-qr-img" :src="ConfigQrUrl()" loading="lazy" alt="Configuration QR Code">
-                  <button type="button" class="btn btn-outline-secondary btn-sm mt-2" @click.prevent="downloadQrPng">
-                    <i class="fas fa-download me-1"></i>{{ $t('modals.peer-view.button-download-qr') }}
-                  </button>
+                  <template v-if="qrTooLarge">
+                    <div class="alert alert-warning small mb-2 w-100" role="alert">
+                      <strong>
+                        <i class="fas fa-exclamation-triangle me-1"></i>{{ $t('modals.peer-view.qr-too-large-headline') }}
+                      </strong>
+                      <div class="mt-1">
+                        {{ $t('modals.peer-view.qr-too-large-body', { size: configByteLength, max: qrSafeMaxBytes }) }}
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <img class="config-qr-img" :src="ConfigQrUrl()" loading="lazy" alt="Configuration QR Code">
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2" @click.prevent="downloadQrPng">
+                      <i class="fas fa-download me-1"></i>{{ $t('modals.peer-view.button-download-qr') }}
+                    </button>
+                  </template>
                   <p v-if="clientAppLink" class="small text-muted mt-2 mb-0 text-center">
                     {{ $t('modals.peer-view.client-app-prompt') }}
                     <a :href="clientAppLink.url" target="_blank" rel="noopener noreferrer">{{ clientAppLink.name }}</a>
