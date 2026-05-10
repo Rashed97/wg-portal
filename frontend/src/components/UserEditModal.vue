@@ -6,11 +6,14 @@ import { useI18n } from 'vue-i18n';
 import { notify } from "@kyvg/vue3-notification";
 import {freshUser} from "@/helpers/models";
 import {settingsStore} from "@/stores/settings";
+import {interfaceStore} from "@/stores/interfaces";
+import {cidrError, cidrContains} from "@/helpers/cidr";
 
 const { t } = useI18n()
 
 const users = userStore()
 const settings = settingsStore()
+const interfaces = interfaceStore()
 
 const props = defineProps({
   userId: String,
@@ -105,6 +108,36 @@ function poolDraft(ifaceId) {
     }
   }
   return poolDrafts.value[ifaceId]
+}
+
+// Live validation for a pool field. Checks CIDR shape AND containment
+// inside the iface's supernet (when known). Returns "" when valid or
+// empty (server side has the final say on overlap with reserved/other-
+// user pools).
+function poolFieldError(ifaceId, family, value) {
+  if (!value) return ""
+  const flavor = family === 'v4' ? 'v4' : 'v6'
+  const shapeErr = cidrError(value, flavor)
+  if (shapeErr) return shapeErr
+  // Look up iface supernet for containment check.
+  const iface = interfaces.Find(ifaceId)
+  if (!iface || !iface.UserPool) return ""
+  const supernet =
+    family === 'v4' ? iface.UserPool.SupernetV4 :
+    family === 'ula' ? iface.UserPool.SupernetV6Ula :
+    family === 'pi' ? iface.UserPool.SupernetV6Pi : ""
+  if (supernet && !cidrContains(supernet, value)) {
+    return `not within ${supernet}`
+  }
+  return ""
+}
+
+function poolDraftHasError(ifaceId) {
+  const d = poolDrafts.value[ifaceId]
+  if (!d) return false
+  return !!(poolFieldError(ifaceId, 'v4', d.PoolV4) ||
+            poolFieldError(ifaceId, 'ula', d.PoolV6Ula) ||
+            poolFieldError(ifaceId, 'pi', d.PoolV6Pi))
 }
 
 async function savePool(ifaceId) {
@@ -258,24 +291,33 @@ async function del() {
                 <label class="form-label small">IPv4 pool</label>
                 <input v-model="poolDraft(pool.InterfaceIdentifier).PoolV4"
                        class="form-control form-control-sm"
+                       :class="{'is-invalid': poolFieldError(pool.InterfaceIdentifier, 'v4', poolDraft(pool.InterfaceIdentifier).PoolV4),
+                                'is-valid': poolDraft(pool.InterfaceIdentifier).PoolV4 && !poolFieldError(pool.InterfaceIdentifier, 'v4', poolDraft(pool.InterfaceIdentifier).PoolV4)}"
                        :placeholder="pool.PoolV4 || '10.66.0.0/27'">
+                <div class="invalid-feedback">{{ poolFieldError(pool.InterfaceIdentifier, 'v4', poolDraft(pool.InterfaceIdentifier).PoolV4) }}</div>
               </div>
               <div class="col-md-4">
                 <label class="form-label small">IPv6 ULA pool</label>
                 <input v-model="poolDraft(pool.InterfaceIdentifier).PoolV6Ula"
                        class="form-control form-control-sm"
+                       :class="{'is-invalid': poolFieldError(pool.InterfaceIdentifier, 'ula', poolDraft(pool.InterfaceIdentifier).PoolV6Ula),
+                                'is-valid': poolDraft(pool.InterfaceIdentifier).PoolV6Ula && !poolFieldError(pool.InterfaceIdentifier, 'ula', poolDraft(pool.InterfaceIdentifier).PoolV6Ula)}"
                        :placeholder="pool.PoolV6Ula || 'fdcc:...:0/80'">
+                <div class="invalid-feedback">{{ poolFieldError(pool.InterfaceIdentifier, 'ula', poolDraft(pool.InterfaceIdentifier).PoolV6Ula) }}</div>
               </div>
               <div class="col-md-4">
                 <label class="form-label small">IPv6 PI pool</label>
                 <input v-model="poolDraft(pool.InterfaceIdentifier).PoolV6Pi"
                        class="form-control form-control-sm"
+                       :class="{'is-invalid': poolFieldError(pool.InterfaceIdentifier, 'pi', poolDraft(pool.InterfaceIdentifier).PoolV6Pi),
+                                'is-valid': poolDraft(pool.InterfaceIdentifier).PoolV6Pi && !poolFieldError(pool.InterfaceIdentifier, 'pi', poolDraft(pool.InterfaceIdentifier).PoolV6Pi)}"
                        :placeholder="pool.PoolV6Pi || '2602:...:0/80'">
+                <div class="invalid-feedback">{{ poolFieldError(pool.InterfaceIdentifier, 'pi', poolDraft(pool.InterfaceIdentifier).PoolV6Pi) }}</div>
               </div>
             </div>
             <div class="mt-2">
               <button class="btn btn-sm btn-primary me-1" type="button"
-                      :disabled="savingPool[pool.InterfaceIdentifier]"
+                      :disabled="savingPool[pool.InterfaceIdentifier] || poolDraftHasError(pool.InterfaceIdentifier)"
                       @click.prevent="savePool(pool.InterfaceIdentifier)">
                 <span v-if="savingPool[pool.InterfaceIdentifier]"
                       class="spinner-border spinner-border-sm me-1"></span>

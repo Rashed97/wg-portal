@@ -17,6 +17,8 @@ import (
 type InterfaceService interface {
 	// GetInterfaceAndPeers returns the interface with the given id and all peers associated with it.
 	GetInterfaceAndPeers(ctx context.Context, id domain.InterfaceIdentifier) (*domain.Interface, []domain.Peer, error)
+	// GetInterfaceAllocatorState returns the read-only allocator state (BNet-m76e QoL).
+	GetInterfaceAllocatorState(ctx context.Context, id domain.InterfaceIdentifier) (*domain.PoolAllocatorState, error)
 	// PrepareInterface returns a new interface with default values.
 	PrepareInterface(ctx context.Context) (*domain.Interface, error)
 	// CreateInterface creates a new interface.
@@ -73,6 +75,7 @@ func (e InterfaceEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 	apiGroup.HandleFunc("GET /config/{id}", e.handleConfigGet())
 	apiGroup.HandleFunc("POST /{id}/save-config", e.handleSaveConfigPost())
 	apiGroup.HandleFunc("POST /{id}/apply-peer-defaults", e.handleApplyPeerDefaultsPost())
+	apiGroup.HandleFunc("GET /pool-state/{id}", e.handlePoolStateGet())
 
 	apiGroup.HandleFunc("GET /peers/{id}", e.handlePeersGet())
 }
@@ -419,5 +422,46 @@ func (e InterfaceEndpoint) handleApplyPeerDefaultsPost() http.HandlerFunc {
 		}
 
 		respond.Status(w, http.StatusNoContent)
+	}
+}
+
+// handlePoolStateGet returns the read-only allocator-state summary for
+// the given interface (BNet-m76e QoL): how many users have pools, what
+// the next free /N slice is per family, total/reserved counts.
+//
+// @ID interfaces_handlePoolStateGet
+// @Tags Interfaces
+// @Summary Get the per-interface user-pool allocator state.
+// @Produce json
+// @Param id path string true "The interface identifier"
+// @Success 200 {object} model.PoolAllocatorState
+// @Failure 500 {object} model.Error
+// @Router /interface/{id}/pool-state [get]
+func (e InterfaceEndpoint) handlePoolStateGet() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := Base64UrlDecode(request.Path(r, "id"))
+		if id == "" {
+			respond.JSON(w, http.StatusBadRequest, model.Error{Code: http.StatusBadRequest, Message: "missing iface id"})
+			return
+		}
+		state, err := e.interfaceService.GetInterfaceAllocatorState(r.Context(), domain.InterfaceIdentifier(id))
+		if err != nil {
+			respond.JSON(w, http.StatusInternalServerError,
+				model.Error{Code: http.StatusInternalServerError, Message: err.Error()})
+			return
+		}
+		respond.JSON(w, http.StatusOK, model.PoolAllocatorState{
+			InterfaceIdentifier:   string(state.InterfaceIdentifier),
+			AllocatedCount:        state.AllocatedCount,
+			NextFreeV4:            state.NextFreeV4,
+			NextFreeV6Ula:         state.NextFreeV6Ula,
+			NextFreeV6Pi:          state.NextFreeV6Pi,
+			SupernetV4Total:       state.SupernetV4Total,
+			SupernetV6UlaTotal:    state.SupernetV6UlaTotal,
+			SupernetV6PiTotal:     state.SupernetV6PiTotal,
+			SupernetV4Reserved:    state.SupernetV4Reserved,
+			SupernetV6UlaReserved: state.SupernetV6UlaReserved,
+			SupernetV6PiReserved:  state.SupernetV6PiReserved,
+		})
 	}
 }

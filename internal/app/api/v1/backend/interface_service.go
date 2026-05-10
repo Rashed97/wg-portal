@@ -15,6 +15,7 @@ type InterfaceServiceInterfaceManagerRepo interface {
 	CreateInterface(ctx context.Context, in *domain.Interface) (*domain.Interface, error)
 	UpdateInterface(ctx context.Context, in *domain.Interface) (*domain.Interface, []domain.Peer, error)
 	DeleteInterface(ctx context.Context, id domain.InterfaceIdentifier) error
+	GetInterfaceAllocatorState(ctx context.Context, id domain.InterfaceIdentifier) (*domain.PoolAllocatorState, error)
 }
 
 type InterfaceService struct {
@@ -120,4 +121,8 @@ func (s InterfaceService) Delete(ctx context.Context, id domain.InterfaceIdentif
 	}
 
 	return nil
+}
+
+func (s InterfaceService) GetAllocatorState(ctx context.Context, id domain.InterfaceIdentifier) (*domain.PoolAllocatorState, error) {
+	return s.interfaces.GetInterfaceAllocatorState(ctx, id)
 }

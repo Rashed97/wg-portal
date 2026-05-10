@@ -19,6 +19,7 @@ type InterfaceEndpointInterfaceService interface {
 	Create(context.Context, *domain.Interface) (*domain.Interface, error)
 	Update(context.Context, domain.InterfaceIdentifier, *domain.Interface) (*domain.Interface, []domain.Peer, error)
 	Delete(context.Context, domain.InterfaceIdentifier) error
+	GetAllocatorState(context.Context, domain.InterfaceIdentifier) (*domain.PoolAllocatorState, error)
 }
 
 type InterfaceEndpoint struct {
@@ -49,6 +50,7 @@ func (e InterfaceEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 
 	apiGroup.HandleFunc("GET /all", e.handleAllGet())
 	apiGroup.HandleFunc("GET /by-id/{id...}", e.handleByIdGet())
+	apiGroup.HandleFunc("GET /pool-state/{id...}", e.handlePoolStateGet())
 
 	apiGroup.HandleFunc("GET /prepare", e.handlePrepareGet())
 	apiGroup.HandleFunc("POST /new", e.handleCreatePost())
@@ -268,5 +270,37 @@ func (e InterfaceEndpoint) handleDelete() http.HandlerFunc {
 		}
 
 		respond.Status(w, http.StatusNoContent)
+	}
+}
+
+// handlePoolStateGet returns the read-only allocator-state summary for
+// the given interface (BNet-m76e QoL): how many users have pools, what
+// the next free /N slice is per family, total/reserved counts.
+//
+// @ID interfaces_handlePoolStateGet
+// @Tags Interfaces
+// @Summary Get the per-interface user-pool allocator state.
+// @Param id path string true "The interface identifier."
+// @Produce json
+// @Success 200 {object} models.PoolAllocatorState
+// @Failure 401 {object} models.Error
+// @Failure 500 {object} models.Error
+// @Router /interface/pool-state/{id} [get]
+// @Security BasicAuth
+func (e InterfaceEndpoint) handlePoolStateGet() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := request.Path(r, "id")
+		if id == "" {
+			respond.JSON(w, http.StatusBadRequest,
+				models.Error{Code: http.StatusBadRequest, Message: "missing interface id"})
+			return
+		}
+		state, err := e.interfaces.GetAllocatorState(r.Context(), domain.InterfaceIdentifier(id))
+		if err != nil {
+			status, model := ParseServiceError(err)
+			respond.JSON(w, status, model)
+			return
+		}
+		respond.JSON(w, http.StatusOK, models.NewPoolAllocatorState(state))
 	}
 }

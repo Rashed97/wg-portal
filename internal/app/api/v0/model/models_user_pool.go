@@ -51,3 +51,21 @@ type UserPoolUpdateRequest struct {
 	PoolV6Pi         string `json:"PoolV6Pi"`
 	SkipPeerRenumber bool   `json:"SkipPeerRenumber,omitempty"`
 }
+
+// PoolAllocatorState is the read-only summary of an interface's
+// auto-allocator state — for the admin UI's "Allocator state" panel.
+type PoolAllocatorState struct {
+	InterfaceIdentifier string `json:"InterfaceIdentifier"`
+	AllocatedCount      int    `json:"AllocatedCount"`
+
+	NextFreeV4    string `json:"NextFreeV4,omitempty"`
+	NextFreeV6Ula string `json:"NextFreeV6Ula,omitempty"`
+	NextFreeV6Pi  string `json:"NextFreeV6Pi,omitempty"`
+
+	SupernetV4Total       int `json:"SupernetV4Total"`
+	SupernetV6UlaTotal    int `json:"SupernetV6UlaTotal"`
+	SupernetV6PiTotal     int `json:"SupernetV6PiTotal"`
+	SupernetV4Reserved    int `json:"SupernetV4Reserved"`
+	SupernetV6UlaReserved int `json:"SupernetV6UlaReserved"`
+	SupernetV6PiReserved  int `json:"SupernetV6PiReserved"`
+}

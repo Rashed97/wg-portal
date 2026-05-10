@@ -17,16 +17,26 @@ type UserManagerRepo interface {
 	DeleteUser(ctx context.Context, id domain.UserIdentifier) error
 }
 
+// WireGuardManagerRepo is the per-(user × interface) pool surface
+// (BNet-m76e). Provided by the wireguard.Manager.
+type WireGuardManagerRepo interface {
+	GetUserInterfacePools(ctx context.Context, user domain.UserIdentifier) ([]domain.UserInterfacePool, error)
+	SetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier, pool *domain.UserInterfacePool, skipRenumber bool) (*domain.UserInterfacePool, error)
+	DeleteUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) error
+}
+
 type UserService struct {
 	cfg *config.Config
 
 	users UserManagerRepo
+	wg    WireGuardManagerRepo
 }
 
-func NewUserService(cfg *config.Config, users UserManagerRepo) *UserService {
+func NewUserService(cfg *config.Config, users UserManagerRepo, wg WireGuardManagerRepo) *UserService {
 	return &UserService{
 		cfg:   cfg,
 		users: users,
+		wg:    wg,
 	}
 }
 
@@ -104,4 +114,18 @@ func (s UserService) Delete(ctx context.Context, id domain.UserIdentifier) error
 	}
 
 	return nil
+}
+
+// Per-(user × interface) pool delegations (BNet-m76e).
+
+func (s UserService) GetUserInterfacePools(ctx context.Context, user domain.UserIdentifier) ([]domain.UserInterfacePool, error) {
+	return s.wg.GetUserInterfacePools(ctx, user)
+}
+
+func (s UserService) SetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier, pool *domain.UserInterfacePool, skipRenumber bool) (*domain.UserInterfacePool, error) {
+	return s.wg.SetUserInterfacePool(ctx, user, iface, pool, skipRenumber)
+}
+
+func (s UserService) DeleteUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) error {
+	return s.wg.DeleteUserInterfacePool(ctx, user, iface)
 }

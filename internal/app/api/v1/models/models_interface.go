@@ -78,6 +78,11 @@ type Interface struct {
 	// PeerDefPostDown specifies the default action that is executed after the device is down for a new peer.
 	PeerDefPostDown string `json:"PeerDefPostDown"`
 
+	// UserPool is the per-(user × interface) auto-allocator config
+	// (BNet-2ya4 / BNet-m76e). Empty supernet on a family disables
+	// auto-allocation for that family.
+	UserPool *UserPoolConfig `json:"UserPool,omitempty"`
+
 	// Calculated values
 
 	// EnabledPeers is the number of enabled peers for this interface. Only enabled peers are able to connect.
@@ -87,6 +92,20 @@ type Interface struct {
 	// Filename is the name of the config file for this interface.
 	// This value is read only and is not settable by the user.
 	Filename string `json:"Filename" example:"wg0.conf" binding:"omitempty,max=21" readonly:"true"`
+}
+
+// UserPoolConfig is the per-interface auto-allocator config —
+// see internal/app/api/v0/model/models_interface.go for full doc.
+type UserPoolConfig struct {
+	SupernetV4    string   `json:"SupernetV4" binding:"omitempty,cidr" example:"10.66.0.0/16"`
+	SizeV4        int      `json:"SizeV4" binding:"omitempty,min=8,max=32" example:"27"`
+	ReservedV4    []string `json:"ReservedV4" binding:"omitempty,dive,cidr"`
+	SupernetV6Ula string   `json:"SupernetV6Ula" binding:"omitempty,cidr" example:"fdcc:ad94:bacf:6160::/64"`
+	SizeV6Ula     int      `json:"SizeV6Ula" binding:"omitempty,min=16,max=128" example:"80"`
+	ReservedV6Ula []string `json:"ReservedV6Ula" binding:"omitempty,dive,cidr"`
+	SupernetV6Pi  string   `json:"SupernetV6Pi" binding:"omitempty,cidr" example:"2602:f481:0:cc::/64"`
+	SizeV6Pi      int      `json:"SizeV6Pi" binding:"omitempty,min=16,max=128"`
+	ReservedV6Pi  []string `json:"ReservedV6Pi" binding:"omitempty,dive,cidr"`
 }
 
 func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
@@ -127,6 +146,19 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 		EnabledPeers: 0,
 		TotalPeers:   0,
 		Filename:     src.GetConfigFileName(),
+	}
+
+	// Surface user-pool config for v1 admin tools (BNet-m76e).
+	iface.UserPool = &UserPoolConfig{
+		SupernetV4:    src.UserPoolSupernetV4,
+		SizeV4:        src.UserPoolSizeV4,
+		ReservedV4:    internal.SliceString(src.UserPoolReservedV4),
+		SupernetV6Ula: src.UserPoolSupernetV6Ula,
+		SizeV6Ula:     src.UserPoolSizeV6Ula,
+		ReservedV6Ula: internal.SliceString(src.UserPoolReservedV6Ula),
+		SupernetV6Pi:  src.UserPoolSupernetV6Pi,
+		SizeV6Pi:      src.UserPoolSizeV6Pi,
+		ReservedV6Pi:  internal.SliceString(src.UserPoolReservedV6Pi),
 	}
 
 	if len(peers) > 0 {
@@ -199,6 +231,18 @@ func NewDomainInterface(src *Interface) *domain.Interface {
 
 	if src.Disabled {
 		res.Disabled = &now
+	}
+
+	if src.UserPool != nil {
+		res.UserPoolSupernetV4 = src.UserPool.SupernetV4
+		res.UserPoolSizeV4 = src.UserPool.SizeV4
+		res.UserPoolReservedV4 = internal.SliceToString(src.UserPool.ReservedV4)
+		res.UserPoolSupernetV6Ula = src.UserPool.SupernetV6Ula
+		res.UserPoolSizeV6Ula = src.UserPool.SizeV6Ula
+		res.UserPoolReservedV6Ula = internal.SliceToString(src.UserPool.ReservedV6Ula)
+		res.UserPoolSupernetV6Pi = src.UserPool.SupernetV6Pi
+		res.UserPoolSizeV6Pi = src.UserPool.SizeV6Pi
+		res.UserPoolReservedV6Pi = internal.SliceToString(src.UserPool.ReservedV6Pi)
 	}
 
 	return res

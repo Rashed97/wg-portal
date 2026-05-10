@@ -18,6 +18,11 @@ type UserService interface {
 	Create(ctx context.Context, user *domain.User) (*domain.User, error)
 	Update(ctx context.Context, id domain.UserIdentifier, user *domain.User) (*domain.User, error)
 	Delete(ctx context.Context, id domain.UserIdentifier) error
+
+	// Per-(user × interface) pool operations (BNet-m76e).
+	GetUserInterfacePools(ctx context.Context, user domain.UserIdentifier) ([]domain.UserInterfacePool, error)
+	SetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier, pool *domain.UserInterfacePool, skipRenumber bool) (*domain.UserInterfacePool, error)
+	DeleteUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) error
 }
 
 type UserEndpoint struct {
@@ -51,6 +56,85 @@ func (e UserEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /new", e.handleCreatePost())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("PUT /by-id/{id...}", e.handleUpdatePut())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("DELETE /by-id/{id...}", e.handleDelete())
+
+	// Per-(user × interface) pool endpoints (BNet-m76e).
+	apiGroup.HandleFunc("GET /by-id/{id}/pools", e.handlePoolsGet())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("PUT /by-id/{id}/pools/{iface}", e.handlePoolPut())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("DELETE /by-id/{id}/pools/{iface}", e.handlePoolDelete())
+}
+
+// handlePoolsGet — see /api/v0/user/{id}/pools docs.
+func (e UserEndpoint) handlePoolsGet() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := request.Path(r, "id")
+		if id == "" {
+			respond.JSON(w, http.StatusBadRequest, models.Error{Code: http.StatusBadRequest, Message: "missing user id"})
+			return
+		}
+		pools, err := e.users.GetUserInterfacePools(r.Context(), domain.UserIdentifier(id))
+		if err != nil {
+			status, model := ParseServiceError(err)
+			respond.JSON(w, status, model)
+			return
+		}
+		respond.JSON(w, http.StatusOK, models.NewUserInterfacePools(pools))
+	}
+}
+
+func (e UserEndpoint) handlePoolPut() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := request.Path(r, "id")
+		iface := request.Path(r, "iface")
+		if id == "" || iface == "" {
+			respond.JSON(w, http.StatusBadRequest, models.Error{Code: http.StatusBadRequest, Message: "missing user or iface id"})
+			return
+		}
+		var req models.UserPoolUpdateRequest
+		if err := request.BodyJson(r, &req); err != nil {
+			respond.JSON(w, http.StatusBadRequest, models.Error{Code: http.StatusBadRequest, Message: err.Error()})
+			return
+		}
+		newPool := &domain.UserInterfacePool{
+			UserIdentifier:      domain.UserIdentifier(id),
+			InterfaceIdentifier: domain.InterfaceIdentifier(iface),
+			PoolV4:              req.PoolV4,
+			PoolV6Ula:           req.PoolV6Ula,
+			PoolV6Pi:            req.PoolV6Pi,
+		}
+		saved, err := e.users.SetUserInterfacePool(
+			r.Context(),
+			domain.UserIdentifier(id),
+			domain.InterfaceIdentifier(iface),
+			newPool,
+			req.SkipPeerRenumber,
+		)
+		if err != nil {
+			respond.JSON(w, http.StatusBadRequest, models.Error{Code: http.StatusBadRequest, Message: err.Error()})
+			return
+		}
+		respond.JSON(w, http.StatusOK, models.NewUserInterfacePool(saved))
+	}
+}
+
+func (e UserEndpoint) handlePoolDelete() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := request.Path(r, "id")
+		iface := request.Path(r, "iface")
+		if id == "" || iface == "" {
+			respond.JSON(w, http.StatusBadRequest, models.Error{Code: http.StatusBadRequest, Message: "missing user or iface id"})
+			return
+		}
+		if err := e.users.DeleteUserInterfacePool(
+			r.Context(),
+			domain.UserIdentifier(id),
+			domain.InterfaceIdentifier(iface),
+		); err != nil {
+			status, model := ParseServiceError(err)
+			respond.JSON(w, status, model)
+			return
+		}
+		respond.Status(w, http.StatusNoContent)
+	}
 }
 
 // handleAllGet returns a gorm Handler function.

@@ -9,6 +9,7 @@ import { validateCIDR, validateIP, validateDomain } from '@/helpers/validators';
 import isCidr from "is-cidr";
 import {isIP} from 'is-ip';
 import { freshInterface, freshAmneziaWG, freshUserPool } from '@/helpers/models';
+import { cidrError, cidrContains } from '@/helpers/cidr';
 import {peerStore} from "@/stores/peers";
 import {settingsStore} from "@/stores/settings";
 
@@ -167,6 +168,8 @@ watch(() => props.visible, async (newValue, oldValue) => {
           // Per-(user × interface) pool config (BNet-m76e). Always
           // emitted by the API; default-empty for non-anycast interfaces.
           formData.value.UserPool = selectedInterface.value.UserPool || freshUserPool()
+          // Load read-only allocator state for the panel.
+          await interfaces.LoadPoolState(selectedInterface.value.Identifier)
         }
       }
     }
@@ -627,6 +630,42 @@ async function del() {
                disables auto-allocation for that family. -->
           <fieldset>
             <legend class="mt-4">User-pool auto-allocator</legend>
+
+            <!-- Allocator state panel — read-only. Only shown for
+                 existing interfaces (props.interfaceId !== '#NEW#'),
+                 since pool state has no meaning before the iface row
+                 exists. (BNet-m76e QoL #3) -->
+            <div v-if="props.interfaceId !== '#NEW#' && interfaces.PoolState"
+                 class="alert alert-info py-2 mb-3">
+              <div class="row small">
+                <div class="col-md-4">
+                  <strong>Users with pools:</strong>
+                  {{ interfaces.PoolState.AllocatedCount }}
+                </div>
+                <div class="col-md-4">
+                  <strong>Next free /v4:</strong>
+                  <code v-if="interfaces.PoolState.NextFreeV4">{{ interfaces.PoolState.NextFreeV4 }}</code>
+                  <em v-else>none / supernet exhausted</em>
+                </div>
+                <div class="col-md-4">
+                  <strong>Slices total / reserved:</strong>
+                  v4 {{ interfaces.PoolState.SupernetV4Total }}/{{ interfaces.PoolState.SupernetV4Reserved }}
+                </div>
+              </div>
+              <div class="row small mt-1">
+                <div class="col-md-6">
+                  <strong>Next free /ULA:</strong>
+                  <code v-if="interfaces.PoolState.NextFreeV6Ula">{{ interfaces.PoolState.NextFreeV6Ula }}</code>
+                  <em v-else>—</em>
+                </div>
+                <div class="col-md-6">
+                  <strong>Next free /PI:</strong>
+                  <code v-if="interfaces.PoolState.NextFreeV6Pi">{{ interfaces.PoolState.NextFreeV6Pi }}</code>
+                  <em v-else>—</em>
+                </div>
+              </div>
+            </div>
+
             <p class="text-muted small">
               Per-(user × interface) /N slices auto-allocated on first
               peer creation. Each user's peers draw from their own slice
@@ -636,7 +675,12 @@ async function del() {
             <div class="row">
               <div class="form-group col-md-6">
                 <label class="form-label mt-2">Supernet IPv4</label>
-                <input v-model="formData.UserPool.SupernetV4" class="form-control" placeholder="10.66.0.0/16">
+                <input v-model="formData.UserPool.SupernetV4"
+                       class="form-control"
+                       :class="{'is-invalid': cidrError(formData.UserPool.SupernetV4, 'v4'),
+                                'is-valid': formData.UserPool.SupernetV4 && !cidrError(formData.UserPool.SupernetV4, 'v4')}"
+                       placeholder="10.66.0.0/16">
+                <div class="invalid-feedback">{{ cidrError(formData.UserPool.SupernetV4, 'v4') }}</div>
               </div>
               <div class="form-group col-md-2">
                 <label class="form-label mt-2">Slice /N</label>
@@ -652,7 +696,12 @@ async function del() {
             <div class="row">
               <div class="form-group col-md-6">
                 <label class="form-label mt-2">Supernet IPv6 ULA</label>
-                <input v-model="formData.UserPool.SupernetV6Ula" class="form-control" placeholder="fdcc:ad94:bacf:6160::/64">
+                <input v-model="formData.UserPool.SupernetV6Ula"
+                       class="form-control"
+                       :class="{'is-invalid': cidrError(formData.UserPool.SupernetV6Ula, 'v6'),
+                                'is-valid': formData.UserPool.SupernetV6Ula && !cidrError(formData.UserPool.SupernetV6Ula, 'v6')}"
+                       placeholder="fdcc:ad94:bacf:6160::/64">
+                <div class="invalid-feedback">{{ cidrError(formData.UserPool.SupernetV6Ula, 'v6') }}</div>
               </div>
               <div class="form-group col-md-2">
                 <label class="form-label mt-2">Slice /N</label>
@@ -668,7 +717,12 @@ async function del() {
             <div class="row">
               <div class="form-group col-md-6">
                 <label class="form-label mt-2">Supernet IPv6 PI</label>
-                <input v-model="formData.UserPool.SupernetV6Pi" class="form-control" placeholder="2602:f481:0:cc::/64">
+                <input v-model="formData.UserPool.SupernetV6Pi"
+                       class="form-control"
+                       :class="{'is-invalid': cidrError(formData.UserPool.SupernetV6Pi, 'v6'),
+                                'is-valid': formData.UserPool.SupernetV6Pi && !cidrError(formData.UserPool.SupernetV6Pi, 'v6')}"
+                       placeholder="2602:f481:0:cc::/64">
+                <div class="invalid-feedback">{{ cidrError(formData.UserPool.SupernetV6Pi, 'v6') }}</div>
               </div>
               <div class="form-group col-md-2">
                 <label class="form-label mt-2">Slice /N</label>

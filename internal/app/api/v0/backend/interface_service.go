@@ -18,6 +18,7 @@ type InterfaceServiceInterfaceManager interface {
 	DeleteInterface(ctx context.Context, id domain.InterfaceIdentifier) error
 	PrepareInterface(ctx context.Context) (*domain.Interface, error)
 	ApplyPeerDefaults(ctx context.Context, in *domain.Interface) error
+	GetInterfaceAllocatorState(ctx context.Context, id domain.InterfaceIdentifier) (*domain.PoolAllocatorState, error)
 }
 
 type InterfaceServiceConfigFileManager interface {
@@ -88,4 +89,8 @@ func (i InterfaceService) PersistInterfaceConfig(ctx context.Context, id domain.
 
 func (i InterfaceService) ApplyPeerDefaults(ctx context.Context, in *domain.Interface) error {
 	return i.interfaces.ApplyPeerDefaults(ctx, in)
+}
+
+func (i InterfaceService) GetInterfaceAllocatorState(ctx context.Context, id domain.InterfaceIdentifier) (*domain.PoolAllocatorState, error) {
+	return i.interfaces.GetInterfaceAllocatorState(ctx, id)
 }

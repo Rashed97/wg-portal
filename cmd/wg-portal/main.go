@@ -153,7 +153,7 @@ func main() {
 	// region API v1 (User REST API)
 
 	apiV1Auth := handlersV1.NewAuthenticationHandler(userManager)
-	apiV1BackendUsers := backendV1.NewUserService(cfg, userManager)
+	apiV1BackendUsers := backendV1.NewUserService(cfg, userManager, wireGuardManager)
 	apiV1BackendPeers := backendV1.NewPeerService(cfg, wireGuardManager, userManager)
 	apiV1BackendInterfaces := backendV1.NewInterfaceService(cfg, wireGuardManager)
 	apiV1BackendProvisioning := backendV1.NewProvisioningService(cfg, userManager, wireGuardManager, cfgFileManager)

@@ -538,3 +538,21 @@ type PeerKernelState struct {
 	LastSetActiveAt  *time.Time `gorm:"column:last_set_active_at"`
 	LastSetInactiveAt *time.Time `gorm:"column:last_set_inactive_at"`
 }
+
+// PoolAllocatorState is a read-only summary of an interface's
+// per-(user × interface) auto-allocator state (BNet-m76e QoL).
+type PoolAllocatorState struct {
+	InterfaceIdentifier InterfaceIdentifier
+	AllocatedCount      int
+
+	NextFreeV4    string
+	NextFreeV6Ula string
+	NextFreeV6Pi  string
+
+	SupernetV4Total       int
+	SupernetV6UlaTotal    int
+	SupernetV6PiTotal     int
+	SupernetV4Reserved    int
+	SupernetV6UlaReserved int
+	SupernetV6PiReserved  int
+}

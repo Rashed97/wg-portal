@@ -15,10 +15,12 @@ export const interfaceStore = defineStore('interfaces', {
     selected: "",
     fetching: false,
     trafficStats: {},
+    poolState: null, // BNet-m76e: read-only allocator-state for the currently-edited iface
   }),
   getters: {
     Count: (state) => state.interfaces.length,
     Prepared: (state) => {console.log("STATE:", state.prepared); return state.prepared},
+    PoolState: (state) => state.poolState,
     All: (state) => state.interfaces,
     Find: (state) => {
         return (id) => state.interfaces.find((p) => p.Identifier === id)
@@ -159,6 +161,21 @@ export const interfaceStore = defineStore('interfaces', {
           console.log(error)
           throw new Error(error)
         })
+    },
+    // BNet-m76e: fetch the read-only allocator state for the iface
+    // currently open in the InterfaceEditModal. Failure is silent —
+    // the state panel just disappears.
+    async LoadPoolState(id) {
+      if (!id) {
+        this.poolState = null
+        return
+      }
+      try {
+        this.poolState = await apiWrapper.get(`${baseUrl}/pool-state/${base64_url_encode(id)}`)
+      } catch (e) {
+        console.log("Failed to load pool state for ", id, ": ", e)
+        this.poolState = null
+      }
     }
   }
 })
