@@ -33,12 +33,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	probing "github.com/prometheus-community/pro-bing"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 
 	"github.com/h44z/wg-portal/internal/config"
 	"github.com/h44z/wg-portal/internal/domain"
@@ -952,3 +954,328 @@ var _ domain.InterfaceController = (*AmneziaController)(nil)
 
 // silence unused-import warnings if a build path strips a dependency.
 var _ = slog.Default
+
+// ============================================================
+// RoutesController implementation (BNet-264h-awg)
+//
+// Mirrors LocalController's route management for amneziawg interfaces.
+// Identical netlink behavior — the only protocol-specific bits are
+// reading/writing the firewall mark on the interface, which we do via
+// awg shell-out (LocalController uses wgctrl).
+// ============================================================
+
+// SetRoutes installs the peer /32 + /128 AllowedIPs as routes in a
+// dedicated routing table (table = fwmark, derived from interface
+// index via Advanced.RouteTableOffset). Idempotent.
+func (c *AmneziaController) SetRoutes(_ context.Context, info domain.RoutingTableInfo) error {
+	interfaceId := info.Interface.Identifier
+	slog.Debug("setting linux routes (amneziawg)", "interface", interfaceId,
+		"table", info.Table, "fwMark", info.FwMark, "cidrs", info.AllowedIps)
+
+	link, err := c.nl.LinkByName(string(interfaceId))
+	if err != nil {
+		return fmt.Errorf("failed to find physical link for %s: %w", interfaceId, err)
+	}
+
+	cidrsV4, cidrsV6 := domain.CidrsPerFamily(info.AllowedIps)
+	realTable, realFwMark, err := c.getOrCreateRoutingTableAndFwMark(link, info.Table, info.FwMark)
+	if err != nil {
+		return fmt.Errorf("failed to get or create routing table and fwmark for %s: %w", interfaceId, err)
+	}
+
+	currentFwMark, _ := c.awgGetFirewallMark(string(interfaceId))
+	if int(realFwMark) != currentFwMark {
+		slog.Debug("updating fwmark for amneziawg interface",
+			"interface", interfaceId, "oldFwMark", currentFwMark,
+			"newFwMark", realFwMark, "oldTable", info.Table, "newTable", realTable)
+		if err := c.awgSetFirewallMark(string(interfaceId), int(realFwMark)); err != nil {
+			return fmt.Errorf("failed to update fwmark for amneziawg interface %s to %d: %w",
+				interfaceId, realFwMark, err)
+		}
+	}
+
+	if err := c.setRoutesForFamily(interfaceId, link, netlink.FAMILY_V4, realTable, realFwMark, cidrsV4); err != nil {
+		return fmt.Errorf("failed to set v4 routes: %w", err)
+	}
+	if err := c.setRoutesForFamily(interfaceId, link, netlink.FAMILY_V6, realTable, realFwMark, cidrsV6); err != nil {
+		return fmt.Errorf("failed to set v6 routes: %w", err)
+	}
+	return nil
+}
+
+// RemoveRoutes is the inverse of SetRoutes; tolerates a torn-down
+// interface (best-effort cleanup).
+func (c *AmneziaController) RemoveRoutes(_ context.Context, info domain.RoutingTableInfo) error {
+	interfaceId := info.Interface.Identifier
+	slog.Debug("removing linux routes (amneziawg)", "interface", interfaceId,
+		"table", info.Table, "fwMark", info.FwMark, "cidrs", info.AllowedIps)
+
+	currentFwMark, _ := c.awgGetFirewallMark(string(interfaceId))
+	link, err := c.nl.LinkByName(string(interfaceId))
+	if err != nil {
+		slog.Debug("amneziawg link already removed, route cleanup might be incomplete", "interface", interfaceId)
+		link = nil
+	}
+
+	fwMark := info.FwMark
+	if currentFwMark > 0 && info.FwMark == 0 {
+		fwMark = uint32(currentFwMark)
+	}
+	table := info.Table
+	if currentFwMark > 0 && info.Table == 0 {
+		table = currentFwMark
+	}
+	linkIndex := -1
+	if link != nil {
+		linkIndex = link.Attrs().Index
+	}
+
+	cidrsV4, cidrsV6 := domain.CidrsPerFamily(info.AllowedIps)
+	realTable, realFwMark, err := c.getOrCreateRoutingTableAndFwMark(link, table, fwMark)
+	if err != nil {
+		return fmt.Errorf("failed to get or create routing table and fwmark for %s: %w", interfaceId, err)
+	}
+
+	if linkIndex > 0 {
+		if err := c.removeRoutesForFamily(interfaceId, link, netlink.FAMILY_V4, realTable, realFwMark, cidrsV4); err != nil {
+			return fmt.Errorf("failed to remove v4 routes: %w", err)
+		}
+		if err := c.removeRoutesForFamily(interfaceId, link, netlink.FAMILY_V6, realTable, realFwMark, cidrsV6); err != nil {
+			return fmt.Errorf("failed to remove v6 routes: %w", err)
+		}
+	}
+
+	if table > 0 {
+		if err := c.removeRouteRulesForTable(netlink.FAMILY_V4, realTable); err != nil {
+			return fmt.Errorf("failed to remove v4 route rules for %s: %w", interfaceId, err)
+		}
+		if err := c.removeRouteRulesForTable(netlink.FAMILY_V6, realTable); err != nil {
+			return fmt.Errorf("failed to remove v6 route rules for %s: %w", interfaceId, err)
+		}
+	}
+	return nil
+}
+
+// awgGetFirewallMark reads the fwmark from a running awg interface via
+// `awg show <iface> fwmark`. Returns 0 if the interface is gone.
+func (c *AmneziaController) awgGetFirewallMark(interfaceId string) (int, error) {
+	out, err := c.awgRun("", "show", interfaceId, "fwmark")
+	if err != nil {
+		return 0, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "off" || out == "" {
+		return 0, nil
+	}
+	// awg show fwmark prints e.g. "0x4e25" or "20005" depending on version
+	if strings.HasPrefix(out, "0x") || strings.HasPrefix(out, "0X") {
+		v, err := strconv.ParseUint(out[2:], 16, 32)
+		if err != nil {
+			return 0, fmt.Errorf("parse hex fwmark %q: %w", out, err)
+		}
+		return int(v), nil
+	}
+	v, err := strconv.Atoi(out)
+	if err != nil {
+		return 0, fmt.Errorf("parse decimal fwmark %q: %w", out, err)
+	}
+	return v, nil
+}
+
+// awgSetFirewallMark applies a new fwmark via `awg set <iface> fwmark <N>`.
+func (c *AmneziaController) awgSetFirewallMark(interfaceId string, fwMark int) error {
+	mark := strconv.FormatUint(uint64(uint32(fwMark)), 10)
+	_, err := c.awgRun("", "set", interfaceId, "fwmark", mark)
+	if err != nil {
+		return fmt.Errorf("awg set fwmark: %w", err)
+	}
+	return nil
+}
+
+func (c *AmneziaController) getOrCreateRoutingTableAndFwMark(
+	link netlink.Link, tableIn int, fwMarkIn uint32,
+) (table int, fwmark uint32, err error) {
+	table = tableIn
+	fwmark = fwMarkIn
+	if fwmark == 0 {
+		if link == nil {
+			return
+		}
+		fwmark = uint32(c.coreCfg.Advanced.RouteTableOffset + link.Attrs().Index)
+	}
+	if table == 0 {
+		table = int(fwmark)
+	}
+	return
+}
+
+func (c *AmneziaController) getMainRulePriority(existingRules []netlink.Rule) int {
+	prio := c.coreCfg.Advanced.RulePrioOffset
+	for {
+		isFresh := true
+		for _, existingRule := range existingRules {
+			if existingRule.Priority == prio {
+				isFresh = false
+				break
+			}
+		}
+		if isFresh {
+			break
+		}
+		prio++
+	}
+	return prio
+}
+
+func (c *AmneziaController) getRulePriority(existingRules []netlink.Rule) int {
+	prio := 32700
+	for {
+		isFresh := true
+		for _, existingRule := range existingRules {
+			if existingRule.Priority == prio {
+				isFresh = false
+				break
+			}
+		}
+		if isFresh {
+			break
+		}
+		prio--
+	}
+	return prio
+}
+
+func (c *AmneziaController) setRoutesForFamily(
+	interfaceId domain.InterfaceIdentifier, link netlink.Link,
+	family int, table int, fwMark uint32, cidrs []domain.Cidr,
+) error {
+	for _, cidr := range cidrs {
+		if err := c.nl.RouteReplace(&netlink.Route{
+			LinkIndex: link.Attrs().Index,
+			Dst:       cidr.IpNet(),
+			Table:     table,
+			Scope:     unix.RT_SCOPE_LINK,
+			Type:      unix.RTN_UNICAST,
+		}); err != nil {
+			return fmt.Errorf("failed to add/update route %s on table %d for interface %s: %w",
+				cidr.String(), table, interfaceId, err)
+		}
+	}
+
+	rawRoutes, err := c.nl.RouteListFiltered(family, &netlink.Route{
+		LinkIndex: link.Attrs().Index,
+		Table:     unix.RT_TABLE_UNSPEC,
+		Scope:     unix.RT_SCOPE_LINK,
+		Type:      unix.RTN_UNICAST,
+	}, netlink.RT_FILTER_TABLE|netlink.RT_FILTER_TYPE|netlink.RT_FILTER_OIF)
+	if err != nil {
+		return fmt.Errorf("failed to fetch raw routes for %s family %d: %w", interfaceId, family, err)
+	}
+	for _, rawRoute := range rawRoutes {
+		if rawRoute.Protocol == unix.RTPROT_KERNEL {
+			continue
+		}
+		if rawRoute.Dst == nil {
+			var netlinkAddr domain.Cidr
+			if family == netlink.FAMILY_V4 {
+				netlinkAddr, _ = domain.CidrFromString("0.0.0.0/0")
+			} else {
+				netlinkAddr, _ = domain.CidrFromString("::/0")
+			}
+			rawRoute.Dst = netlinkAddr.IpNet()
+		}
+		route := domain.CidrFromIpNet(*rawRoute.Dst)
+		if slices.Contains(cidrs, route) {
+			continue
+		}
+		if err := c.nl.RouteDel(&rawRoute); err != nil {
+			return fmt.Errorf("failed to remove deprecated route %s from %s: %w", route, interfaceId, err)
+		}
+	}
+
+	if table == 0 {
+		return nil
+	}
+	existingRules, err := c.nl.RuleList(family)
+	if err != nil {
+		return fmt.Errorf("failed to get existing rules for family %d: %w", family, err)
+	}
+	ruleExists := slices.ContainsFunc(existingRules, func(rule netlink.Rule) bool {
+		return rule.Mark == fwMark && rule.Table == table
+	})
+	if !ruleExists {
+		if err := c.nl.RuleAdd(&netlink.Rule{
+			Family: family, Table: table, Mark: fwMark, Invert: true,
+			SuppressIfgroup: -1, SuppressPrefixlen: -1,
+			Priority: c.getRulePriority(existingRules),
+			Goto:     -1, Flow: -1,
+		}); err != nil {
+			return fmt.Errorf("failed to setup rule for fwmark %d table %d family %d: %w",
+				fwMark, table, family, err)
+		}
+	}
+	mainRuleExists := slices.ContainsFunc(existingRules, func(rule netlink.Rule) bool {
+		return rule.SuppressPrefixlen == 0 && rule.Table == unix.RT_TABLE_MAIN
+	})
+	if !mainRuleExists && domain.ContainsDefaultRoute(cidrs) {
+		_ = c.nl.RuleAdd(&netlink.Rule{
+			Family: family, Table: unix.RT_TABLE_MAIN,
+			SuppressIfgroup: -1, SuppressPrefixlen: 0,
+			Priority: c.getMainRulePriority(existingRules),
+			Goto:     -1, Flow: -1,
+		})
+	}
+	return nil
+}
+
+func (c *AmneziaController) removeRoutesForFamily(
+	interfaceId domain.InterfaceIdentifier, link netlink.Link,
+	family int, table int, fwMark uint32, cidrs []domain.Cidr,
+) error {
+	existingRules, err := c.nl.RuleList(family)
+	if err != nil {
+		return fmt.Errorf("failed to get existing rules for family %d: %w", family, err)
+	}
+	for _, existingRule := range existingRules {
+		if fwMark == existingRule.Mark && table == existingRule.Table {
+			existingRule.Family = family
+			if err := c.nl.RuleDel(&existingRule); err != nil {
+				return fmt.Errorf("failed to delete old fwmark rule: %w", err)
+			}
+		}
+	}
+	rawRoutes, err := c.nl.RouteListFiltered(family, &netlink.Route{
+		LinkIndex: link.Attrs().Index,
+		Table:     unix.RT_TABLE_UNSPEC,
+		Scope:     unix.RT_SCOPE_LINK,
+		Type:      unix.RTN_UNICAST,
+	}, netlink.RT_FILTER_TABLE|netlink.RT_FILTER_TYPE|netlink.RT_FILTER_OIF)
+	if err != nil {
+		return fmt.Errorf("failed to fetch raw routes for %s family %d: %w", interfaceId, family, err)
+	}
+	for _, rawRoute := range rawRoutes {
+		if rawRoute.Protocol == unix.RTPROT_KERNEL {
+			continue
+		}
+		if err := c.nl.RouteDel(&rawRoute); err != nil {
+			return fmt.Errorf("failed to remove route from %s: %w", interfaceId, err)
+		}
+	}
+	return nil
+}
+
+func (c *AmneziaController) removeRouteRulesForTable(family int, table int) error {
+	existingRules, err := c.nl.RuleList(family)
+	if err != nil {
+		return fmt.Errorf("failed to get existing rules for family %d: %w", family, err)
+	}
+	for _, existingRule := range existingRules {
+		if existingRule.Table == table {
+			existingRule.Family = family
+			if err := c.nl.RuleDel(&existingRule); err != nil {
+				return fmt.Errorf("failed to delete rule for table %d family %d: %w", table, family, err)
+			}
+		}
+	}
+	return nil
+}
