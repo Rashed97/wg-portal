@@ -26,6 +26,9 @@ type StatisticsDatabaseRepo interface {
 		updateFunc func(in *domain.InterfaceStatus) (*domain.InterfaceStatus, error),
 	) error
 	DeletePeerStatus(ctx context.Context, id domain.PeerIdentifier) error
+
+	// BNet-264h: site-state lookup for skipping foreign-site interfaces.
+	GetInterfaceSiteState(ctx context.Context, iface domain.InterfaceIdentifier, siteId string) (*domain.InterfaceSiteState, error)
 }
 
 type StatisticsMetricsServer interface {
@@ -89,6 +92,24 @@ func (c *StatisticsCollector) StartBackgroundJobs(ctx context.Context) {
 	c.startPeerDataFetcher(ctx)
 }
 
+// skipInterfaceForSite returns true when this instance should NOT do
+// stats / ping work against the given interface — same site_id rule
+// as RestoreInterfaceState (BNet-jf2l). Empty SiteId on either side =
+// legacy mode, manage everything.
+func (c *StatisticsCollector) skipInterfaceForSite(in domain.Interface) bool {
+	siteId := c.cfg.Core.SiteId
+	if siteId == "" {
+		return false
+	}
+	// BNet-264h: site state lives in interface_site_state. If this
+	// region has no row for the interface, skip stats collection.
+	state, err := c.db.GetInterfaceSiteState(context.Background(), in.Identifier, siteId)
+	if err != nil || state == nil {
+		return true
+	}
+	return false
+}
+
 func (c *StatisticsCollector) startInterfaceDataFetcher(ctx context.Context) {
 	if !c.cfg.Statistics.CollectInterfaceData {
 		return
@@ -115,6 +136,9 @@ func (c *StatisticsCollector) collectInterfaceData(ctx context.Context) {
 			}
 
 			for _, in := range interfaces {
+				if c.skipInterfaceForSite(in) {
+					continue
+				}
 				physicalInterface, err := c.wg.GetController(in).GetInterface(ctx, in.Identifier)
 				if err != nil {
 					slog.Warn("failed to load physical interface for data collection", "interface", in.Identifier,
@@ -177,6 +201,9 @@ func (c *StatisticsCollector) collectPeerData(ctx context.Context) {
 			}
 
 			for _, in := range interfaces {
+				if c.skipInterfaceForSite(in) {
+					continue
+				}
 				peers, err := c.wg.GetController(in).GetPeers(ctx, in.Identifier)
 				if err != nil {
 					slog.Warn("failed to fetch peers for data collection", "interface", in.Identifier, "error", err)
@@ -328,6 +355,9 @@ func (c *StatisticsCollector) enqueuePingChecks(ctx context.Context) {
 			}
 
 			for _, in := range interfaces {
+				if c.skipInterfaceForSite(in) {
+					continue
+				}
 				peers, err := c.db.GetInterfacePeers(ctx, in.Identifier)
 				if err != nil {
 					slog.Warn("failed to fetch peers for ping checks", "interface", in.Identifier, "error", err)

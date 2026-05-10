@@ -233,6 +233,10 @@ func (r *SqlRepo) migrate() error {
 	slog.Debug("running migration: audit data", "result", r.db.AutoMigrate(&domain.AuditEntry{}))
 	slog.Debug("running migration: user_interface_pools (BNet-2ya4)",
 		"result", r.db.AutoMigrate(&domain.UserInterfacePool{}))
+	slog.Debug("running migration: interface_site_state (BNet-264h)",
+		"result", r.db.AutoMigrate(&domain.InterfaceSiteState{}))
+	slog.Debug("running migration: peer_kernel_state (BNet-264h)",
+		"result", r.db.AutoMigrate(&domain.PeerKernelState{}))
 
 	var existingSysStat SysStat
 	var err error
@@ -997,6 +1001,114 @@ func (r *SqlRepo) SaveUserInterfacePool(
 				"updated_at", "updated_by",
 			}),
 		}).Create(pool).Error
+}
+
+// GetInterfaceSiteState returns the per-region state row for an
+// interface (BNet-264h Option B), or nil if this region doesn't host
+// the interface.
+func (r *SqlRepo) GetInterfaceSiteState(
+	ctx context.Context,
+	iface domain.InterfaceIdentifier,
+	siteId string,
+) (*domain.InterfaceSiteState, error) {
+	var s domain.InterfaceSiteState
+	err := r.db.WithContext(ctx).
+		Where("interface_identifier = ? AND site_id = ?", iface, siteId).
+		First(&s).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &s, nil
+}
+
+// GetInterfaceSitesForInterface returns the set of site_ids that
+// host a given interface (used by CreatePeer to insert kernel_state
+// rows for each region).
+func (r *SqlRepo) GetInterfaceSitesForInterface(
+	ctx context.Context,
+	iface domain.InterfaceIdentifier,
+) ([]string, error) {
+	var sites []string
+	err := r.db.WithContext(ctx).
+		Model(&domain.InterfaceSiteState{}).
+		Where("interface_identifier = ?", iface).
+		Pluck("site_id", &sites).Error
+	return sites, err
+}
+
+// SaveInterfaceSiteState upserts a per-region interface row.
+func (r *SqlRepo) SaveInterfaceSiteState(
+	ctx context.Context,
+	state *domain.InterfaceSiteState,
+) error {
+	now := time.Now()
+	userInfo := domain.GetUserInfo(ctx)
+	state.UpdatedAt = now
+	state.UpdatedBy = string(userInfo.Id)
+	if state.CreatedAt.IsZero() {
+		state.CreatedAt = now
+		state.CreatedBy = string(userInfo.Id)
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "interface_identifier"},
+				{Name: "site_id"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"address_str", "private_key", "public_key", "listen_port",
+				"updated_at", "updated_by",
+			}),
+		}).Create(state).Error
+}
+
+// GetPeerKernelState returns the per-(peer × site) row, or nil.
+func (r *SqlRepo) GetPeerKernelState(
+	ctx context.Context,
+	peer domain.PeerIdentifier,
+	siteId string,
+) (*domain.PeerKernelState, error) {
+	var s domain.PeerKernelState
+	err := r.db.WithContext(ctx).
+		Where("peer_identifier = ? AND site_id = ?", peer, siteId).
+		First(&s).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &s, nil
+}
+
+// SavePeerKernelState upserts a per-(peer × site) row.
+func (r *SqlRepo) SavePeerKernelState(
+	ctx context.Context,
+	state *domain.PeerKernelState,
+) error {
+	now := time.Now()
+	userInfo := domain.GetUserInfo(ctx)
+	state.UpdatedAt = now
+	state.UpdatedBy = string(userInfo.Id)
+	if state.CreatedAt.IsZero() {
+		state.CreatedAt = now
+		state.CreatedBy = string(userInfo.Id)
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "peer_identifier"},
+				{Name: "site_id"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"active", "last_handshake_at",
+				"last_set_active_at", "last_set_inactive_at",
+				"updated_at", "updated_by",
+			}),
+		}).Create(state).Error
 }
 
 // SaveUser updates the user with the given id.

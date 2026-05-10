@@ -30,13 +30,13 @@ type Config struct {
 		ImportExisting              bool `yaml:"import_existing"`
 		RestoreState                bool `yaml:"restore_state"`
 
-		// SiteId scopes which interfaces this wg-portal instance manages
-		// at the kernel level (BNet-jf2l). Only interfaces whose
-		// `site_id` column matches this string get state-restoration,
-		// statistics, etc. Other interfaces are still readable in the
-		// admin UI (since the DB is shared) but no kernel actions are
-		// taken locally. Empty SiteId = legacy "manage everything" mode
-		// — fine for single-region installs.
+		// SiteId identifies which region this wg-portal instance lives
+		// in (BNet-264h Option B). Used to look up per-region state in
+		// the interface_site_state and peer_kernel_state tables. Each
+		// instance reads ONLY the rows where site_id == this value when
+		// deciding what kernel state to materialize. Empty = legacy
+		// "manage every interface row" mode (only sane for a
+		// single-region install — preserved for upgrades).
 		SiteId string `yaml:"site_id"`
 	} `yaml:"core"`
 

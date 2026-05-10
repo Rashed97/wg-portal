@@ -228,15 +228,36 @@ func (m Manager) RestoreInterfaceState(
 			continue // ignore filtered interface
 		}
 
-		// Active-active scoping (BNet-jf2l). Only manage kernel state
-		// for interfaces whose SiteId matches this instance. Empty
-		// SiteId = "global / unowned" — fall through (legacy single-region
-		// behavior). When this instance has no SiteId configured at all,
-		// manage everything (legacy behavior preserved for upgrades).
-		if siteId != "" && iface.SiteId != "" && iface.SiteId != siteId {
-			slog.Debug("skipping interface — owned by another site",
-				"interface", iface.Identifier, "owner_site", iface.SiteId, "this_site", siteId)
-			continue
+		// Anycast site-state (BNet-264h Option B). Each interface row
+		// is a logical anycast group; per-region addresses + keypair
+		// live in interface_site_state. If this region doesn't host the
+		// interface, skip. Empty cfg.SiteId = legacy single-region mode
+		// (manage every interface; no per-site overrides).
+		if siteId != "" {
+			siteState, err := m.db.GetInterfaceSiteState(ctx, iface.Identifier, siteId)
+			if err != nil {
+				slog.Warn("failed to fetch site state — skipping interface",
+					"interface", iface.Identifier, "site", siteId, "error", err)
+				continue
+			}
+			if siteState == nil {
+				slog.Debug("interface not hosted in this region — skipping",
+					"interface", iface.Identifier, "site", siteId)
+				continue
+			}
+			// Override interface fields with per-site values for kernel apply.
+			if addrs := siteState.Addresses(); len(addrs) > 0 {
+				iface.Addresses = addrs
+			}
+			if siteState.PrivateKey != "" {
+				iface.PrivateKey = siteState.PrivateKey
+			}
+			if siteState.PublicKey != "" {
+				iface.PublicKey = siteState.PublicKey
+			}
+			if siteState.ListenPort != 0 {
+				iface.ListenPort = siteState.ListenPort
+			}
 		}
 
 		peers, err := m.db.GetInterfacePeers(ctx, iface.Identifier)
@@ -300,8 +321,21 @@ func (m Manager) RestoreInterfaceState(
 			}
 		}
 
-		// restore peers
+		// restore peers — anycast filter (BNet-264h): in multi-region
+		// mode, only render peers whose peer_kernel_state.active=true
+		// for THIS site. Idle peers stay out of the kernel until the
+		// sidecar sees a fresh handshake. In single-region mode
+		// (cfg.SiteId == ""), no gating — render everything.
 		for _, peer := range peers {
+			if siteId != "" {
+				ks, ksErr := m.db.GetPeerKernelState(ctx, peer.Identifier, siteId)
+				if ksErr == nil && ks != nil && !ks.Active {
+					// Idle in this region — make sure the kernel doesn't
+					// hold a stale entry, then skip.
+					_ = controller.DeletePeer(ctx, iface.Identifier, peer.Identifier)
+					continue
+				}
+			}
 			switch {
 			case iface.IsDisabled() && iface.Backend == config.LocalBackendName: // if interface is disabled, delete all peers
 				if err := controller.DeletePeer(ctx, iface.Identifier,
@@ -901,12 +935,6 @@ func (m Manager) importInterface(
 	iface.Backend = backend.GetId()
 	iface.PeerDefAllowedIPsStr = iface.AddressStr()
 
-	// Tag freshly-imported interfaces with this instance's site_id
-	// (BNet-jf2l). The kernel device exists locally, so this site owns
-	// it. Empty SiteId in config = legacy "global" import (preserved
-	// for single-region installs).
-	iface.SiteId = m.cfg.Core.SiteId
-
 	// For pfSense backends, extract endpoint and DNS from peers
 	if backend.GetId() == domain.ControllerTypePfsense {
 		endpoint, dns := extractPfsenseDefaultsFromPeers(peers, iface.ListenPort)
@@ -942,6 +970,23 @@ func (m Manager) importInterface(
 	})
 	if err != nil {
 		return fmt.Errorf("database save failed: %w", err)
+	}
+
+	// Anycast bootstrap (BNet-264h): the kernel device exists locally,
+	// so THIS site hosts the interface. Capture per-region state.
+	if siteId := m.cfg.Core.SiteId; siteId != "" {
+		err = m.db.SaveInterfaceSiteState(ctx, &domain.InterfaceSiteState{
+			InterfaceIdentifier: iface.Identifier,
+			SiteId:              siteId,
+			AddressStr:          iface.AddressStr(),
+			PrivateKey:          iface.PrivateKey,
+			PublicKey:           iface.PublicKey,
+			ListenPort:          iface.ListenPort,
+		})
+		if err != nil {
+			slog.WarnContext(ctx, "failed to seed interface_site_state",
+				"interface", iface.Identifier, "site", siteId, "error", err)
+		}
 	}
 
 	// import peers

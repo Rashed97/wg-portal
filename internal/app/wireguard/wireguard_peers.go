@@ -267,6 +267,23 @@ func (m Manager) CreatePeer(ctx context.Context, peer *domain.Peer) (*domain.Pee
 		return nil, fmt.Errorf("creation failure: %w", err)
 	}
 
+	// Anycast bootstrap (BNet-264h): insert a peer_kernel_state row
+	// for every region that hosts this interface. All start active=
+	// false; the local sidecar flips its region to active=true on
+	// first handshake.
+	if sites, err := m.db.GetInterfaceSitesForInterface(ctx, peer.InterfaceIdentifier); err == nil {
+		for _, site := range sites {
+			if err := m.db.SavePeerKernelState(ctx, &domain.PeerKernelState{
+				PeerIdentifier: peer.Identifier,
+				SiteId:         site,
+				Active:         false,
+			}); err != nil {
+				slog.WarnContext(ctx, "failed to seed peer_kernel_state",
+					"peer", peer.Identifier, "site", site, "error", err)
+			}
+		}
+	}
+
 	m.bus.Publish(app.TopicPeerCreated, *peer)
 
 	return peer, nil

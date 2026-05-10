@@ -79,15 +79,6 @@ type Interface struct {
 	PeerDefPreDown  string // default action that is executed before the device is down
 	PeerDefPostDown string // default action that is executed after the device is down
 
-	// Active-active scoping (BNet-jf2l). When set, only wg-portal
-	// instances whose `core.site_id` matches will run kernel-side
-	// management (apply state, statistics collectors, route sync) for
-	// this interface. ALL instances still see it in the DB + UI so the
-	// shared admin model stays single-pane-of-glass.
-	// Empty SiteId means "global / unowned" — every instance manages it
-	// (legacy; preserved for upgrade from pre-multi-region installs).
-	SiteId string `gorm:"column:site_id;index"`
-
 	// Per-interface user pool config (BNet-2ya4 / BNet-5ag6). Each user
 	// gets a /UserPoolSizeV4 slice of UserPoolSupernetV4 on this
 	// interface — auto-allocated on first peer creation; persisted in
@@ -491,4 +482,59 @@ type RouteRule struct {
 	FwMark      uint32
 	Table       int
 	HasDefault  bool
+}
+
+// InterfaceSiteState carries the per-region state for a logical
+// interface row (BNet-264h Option B anycast). The interface row in
+// the `interfaces` table is shared across the whole fleet — exactly
+// one row per anycast group ("wg0", "awg0", …). This sibling table
+// holds the bits that DIFFER between regions: addresses, server
+// keypair, listen port, etc. Each wg-portal instance reads the row
+// for (interface, this_site_id) and applies it to its local kernel.
+type InterfaceSiteState struct {
+	BaseModel
+
+	InterfaceIdentifier InterfaceIdentifier `gorm:"primaryKey;column:interface_identifier"`
+	SiteId              string              `gorm:"primaryKey;column:site_id"`
+
+	// Server-side address(es) on this region's kernel device. Stored
+	// as the same comma-separated CIDR string used by Interface.AddressStr().
+	AddressStr string `gorm:"column:address_str"`
+
+	// Per-region keypair (each region has its own server identity so
+	// clients use distinct PublicKey per region in their .conf).
+	PrivateKey string `gorm:"column:private_key;serializer:encstr"`
+	PublicKey  string `gorm:"column:public_key"`
+
+	// Listen port on this region. Typically 41194 (wg) / 41195 (awg);
+	// per-region override available for flexibility.
+	ListenPort int `gorm:"column:listen_port"`
+}
+
+// Addresses returns AddressStr parsed into Cidr values; empty slice
+// when AddressStr is blank.
+func (s InterfaceSiteState) Addresses() []Cidr {
+	if s.AddressStr == "" {
+		return nil
+	}
+	out, _ := CidrsFromString(s.AddressStr)
+	return out
+}
+
+// PeerKernelState gates per-(peer × site) kernel materialization
+// (BNet-264h Option B anycast). Active=true means THIS region's
+// kernel currently has the peer in wg0/awg0 AND the local sidecar
+// is BGP-advertising the peer's /32. Each peer has one row per site
+// that hosts the peer's interface. wg-portal flips `active` based
+// on handshake events; the sidecar is the fast-path writer.
+type PeerKernelState struct {
+	BaseModel
+
+	PeerIdentifier PeerIdentifier `gorm:"primaryKey;column:peer_identifier"`
+	SiteId         string         `gorm:"primaryKey;column:site_id"`
+
+	Active           bool       `gorm:"column:active;index"`
+	LastHandshakeAt  *time.Time `gorm:"column:last_handshake_at"`
+	LastSetActiveAt  *time.Time `gorm:"column:last_set_active_at"`
+	LastSetInactiveAt *time.Time `gorm:"column:last_set_inactive_at"`
 }

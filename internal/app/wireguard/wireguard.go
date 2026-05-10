@@ -41,6 +41,13 @@ type InterfaceAndPeerDatabaseRepo interface {
 	GetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) (*domain.UserInterfacePool, error)
 	GetUserInterfacePoolsForInterface(ctx context.Context, iface domain.InterfaceIdentifier) ([]domain.UserInterfacePool, error)
 	SaveUserInterfacePool(ctx context.Context, pool *domain.UserInterfacePool) error
+
+	// Active-active anycast support (BNet-264h Option B).
+	GetInterfaceSiteState(ctx context.Context, iface domain.InterfaceIdentifier, siteId string) (*domain.InterfaceSiteState, error)
+	GetInterfaceSitesForInterface(ctx context.Context, iface domain.InterfaceIdentifier) ([]string, error)
+	SaveInterfaceSiteState(ctx context.Context, state *domain.InterfaceSiteState) error
+	GetPeerKernelState(ctx context.Context, peer domain.PeerIdentifier, siteId string) (*domain.PeerKernelState, error)
+	SavePeerKernelState(ctx context.Context, state *domain.PeerKernelState) error
 }
 
 type WgQuickController interface {
