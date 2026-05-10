@@ -321,21 +321,14 @@ func (m Manager) RestoreInterfaceState(
 			}
 		}
 
-		// restore peers — anycast filter (BNet-264h): in multi-region
-		// mode, only render peers whose peer_kernel_state.active=true
-		// for THIS site. Idle peers stay out of the kernel until the
-		// sidecar sees a fresh handshake. In single-region mode
-		// (cfg.SiteId == ""), no gating — render everything.
+		// restore peers. NOTE (BNet-264h): peers ALWAYS materialize
+		// in every region's kernel — anycast requires this so a
+		// handshake from any region succeeds. peer_kernel_state.active
+		// gates only the sidecar's BGP /32 advertisement (Phase C),
+		// NOT kernel materialization. This ensures the kernel can
+		// receive a handshake from anywhere; the routing layer handles
+		// "which region currently owns the return path".
 		for _, peer := range peers {
-			if siteId != "" {
-				ks, ksErr := m.db.GetPeerKernelState(ctx, peer.Identifier, siteId)
-				if ksErr == nil && ks != nil && !ks.Active {
-					// Idle in this region — make sure the kernel doesn't
-					// hold a stale entry, then skip.
-					_ = controller.DeletePeer(ctx, iface.Identifier, peer.Identifier)
-					continue
-				}
-			}
 			switch {
 			case iface.IsDisabled() && iface.Backend == config.LocalBackendName: // if interface is disabled, delete all peers
 				if err := controller.DeletePeer(ctx, iface.Identifier,
