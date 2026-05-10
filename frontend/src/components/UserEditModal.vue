@@ -81,10 +81,54 @@ watch(() => props.visible, async (newValue, oldValue) => {
           formData.value.Disabled = selectedUser.value.Disabled
           formData.value.Locked = selectedUser.value.Locked
           formData.value.PersistLocalChanges = selectedUser.value.PersistLocalChanges
+          // Load per-(user × interface) pools (BNet-m76e).
+          if (selectedUser.value.Identifier) {
+            await users.LoadUserPools(selectedUser.value.Identifier)
+          }
         }
       }
     }
 )
+
+// Pool editing state — one entry per pool row, keyed by interface_id.
+// Holds in-flight (unsaved) changes; reverts to store on cancel.
+const poolDrafts = ref({})
+const savingPool = ref({})
+
+function poolDraft(ifaceId) {
+  if (!poolDrafts.value[ifaceId]) {
+    const existing = users.Pools.find(p => p.InterfaceIdentifier === ifaceId)
+    poolDrafts.value[ifaceId] = {
+      PoolV4: existing?.PoolV4 || "",
+      PoolV6Ula: existing?.PoolV6Ula || "",
+      PoolV6Pi: existing?.PoolV6Pi || "",
+    }
+  }
+  return poolDrafts.value[ifaceId]
+}
+
+async function savePool(ifaceId) {
+  if (!selectedUser.value) return
+  savingPool.value[ifaceId] = true
+  try {
+    await users.UpdateUserPool(selectedUser.value.Identifier, ifaceId, poolDrafts.value[ifaceId])
+    delete poolDrafts.value[ifaceId]
+  } finally {
+    savingPool.value[ifaceId] = false
+  }
+}
+
+async function releasePool(ifaceId) {
+  if (!selectedUser.value) return
+  if (!confirm(`Release pool for ${selectedUser.value.Identifier} on ${ifaceId}? Existing peer addresses are NOT renumbered — auto-allocator will pick a fresh slot on next peer creation.`)) return
+  savingPool.value[ifaceId] = true
+  try {
+    await users.ReleaseUserPool(selectedUser.value.Identifier, ifaceId)
+    delete poolDrafts.value[ifaceId]
+  } finally {
+    savingPool.value[ifaceId] = false
+  }
+}
 
 function close() {
   formData.value = freshUser()
@@ -192,6 +236,65 @@ async function del() {
           <textarea v-model="formData.Notes" class="form-control" rows="2"></textarea>
         </div>
       </fieldset>
+      <fieldset v-if="props.userId !== '#NEW#'">
+        <legend class="mt-4">Network pools</legend>
+        <p class="text-muted small mb-2">
+          Per-interface /N slices for this user. Empty = not allocated;
+          first peer creation auto-allocates from the interface's supernet.
+          Changing a pool auto-renumbers existing peer addresses (host
+          bits preserved).
+        </p>
+        <div v-if="users.Pools.length === 0" class="text-muted">
+          <em>No pools allocated yet.</em>
+        </div>
+        <div v-for="pool in users.Pools" :key="pool.InterfaceIdentifier"
+             class="card mt-2">
+          <div class="card-body">
+            <h6 class="card-subtitle mb-2 text-muted">
+              <code>{{ pool.InterfaceIdentifier }}</code>
+            </h6>
+            <div class="row g-2">
+              <div class="col-md-4">
+                <label class="form-label small">IPv4 pool</label>
+                <input v-model="poolDraft(pool.InterfaceIdentifier).PoolV4"
+                       class="form-control form-control-sm"
+                       :placeholder="pool.PoolV4 || '10.66.0.0/27'">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small">IPv6 ULA pool</label>
+                <input v-model="poolDraft(pool.InterfaceIdentifier).PoolV6Ula"
+                       class="form-control form-control-sm"
+                       :placeholder="pool.PoolV6Ula || 'fdcc:...:0/80'">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small">IPv6 PI pool</label>
+                <input v-model="poolDraft(pool.InterfaceIdentifier).PoolV6Pi"
+                       class="form-control form-control-sm"
+                       :placeholder="pool.PoolV6Pi || '2602:...:0/80'">
+              </div>
+            </div>
+            <div class="mt-2">
+              <button class="btn btn-sm btn-primary me-1" type="button"
+                      :disabled="savingPool[pool.InterfaceIdentifier]"
+                      @click.prevent="savePool(pool.InterfaceIdentifier)">
+                <span v-if="savingPool[pool.InterfaceIdentifier]"
+                      class="spinner-border spinner-border-sm me-1"></span>
+                Save
+              </button>
+              <button class="btn btn-sm btn-outline-danger" type="button"
+                      :disabled="savingPool[pool.InterfaceIdentifier]"
+                      @click.prevent="releasePool(pool.InterfaceIdentifier)">
+                Release
+              </button>
+              <small class="text-muted ms-2">
+                Last update: {{ pool.UpdatedAt ? new Date(pool.UpdatedAt).toLocaleString() : '—' }}
+                <span v-if="pool.UpdatedBy"> by {{ pool.UpdatedBy }}</span>
+              </small>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
       <fieldset>
         <legend class="mt-4">{{ $t('modals.user-edit.header-state') }}</legend>
         <div class="form-check form-switch">

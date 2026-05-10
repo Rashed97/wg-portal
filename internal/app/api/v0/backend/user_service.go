@@ -26,6 +26,12 @@ type UserServiceWireGuardManager interface {
 	GetUserPeers(ctx context.Context, id domain.UserIdentifier) ([]domain.Peer, error)
 	GetUserInterfaces(ctx context.Context, _ domain.UserIdentifier) ([]domain.Interface, error)
 	GetUserPeerStats(ctx context.Context, id domain.UserIdentifier) ([]domain.PeerStatus, error)
+
+	// Per-(user × interface) pool operations (BNet-m76e).
+	GetUserInterfacePools(ctx context.Context, user domain.UserIdentifier) ([]domain.UserInterfacePool, error)
+	GetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) (*domain.UserInterfacePool, error)
+	SetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier, pool *domain.UserInterfacePool, skipRenumber bool) (*domain.UserInterfacePool, error)
+	DeleteUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) error
 }
 
 // endregion dependencies
@@ -148,6 +154,24 @@ func (u UserService) BulkDelete(ctx context.Context, ids []domain.UserIdentifier
 	}
 
 	return nil
+}
+
+// Per-(user × interface) pool delegations (BNet-m76e).
+
+func (u UserService) GetUserInterfacePools(ctx context.Context, user domain.UserIdentifier) ([]domain.UserInterfacePool, error) {
+	return u.wg.GetUserInterfacePools(ctx, user)
+}
+
+func (u UserService) GetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) (*domain.UserInterfacePool, error) {
+	return u.wg.GetUserInterfacePool(ctx, user, iface)
+}
+
+func (u UserService) SetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier, pool *domain.UserInterfacePool, skipRenumber bool) (*domain.UserInterfacePool, error) {
+	return u.wg.SetUserInterfacePool(ctx, user, iface, pool, skipRenumber)
+}
+
+func (u UserService) DeleteUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) error {
+	return u.wg.DeleteUserInterfacePool(ctx, user, iface)
 }
 
 func (u UserService) BulkUpdate(ctx context.Context, ids []domain.UserIdentifier, updateFn func(*domain.User)) error {

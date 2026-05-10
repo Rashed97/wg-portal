@@ -8,6 +8,7 @@ const baseUrl = `/user`
 export const userStore = defineStore('users', {
   state: () => ({
     userPeers: [],
+    userPools: [],
     users: [],
     filter: "",
     pageSize: 10,
@@ -23,6 +24,7 @@ export const userStore = defineStore('users', {
     FilteredCount: (state) => state.Filtered.length,
     All: (state) => state.users,
     Peers: (state) => state.userPeers,
+    Pools: (state) => state.userPools,
     Filtered: (state) => {
       if (!state.filter) {
         return state.users
@@ -75,6 +77,9 @@ export const userStore = defineStore('users', {
     setUserPeers(peers) {
       this.userPeers = peers
       this.fetching = false
+    },
+    setUserPools(pools) {
+      this.userPools = pools || []
     },
     async LoadUsers() {
       this.fetching = true
@@ -141,6 +146,66 @@ export const userStore = defineStore('users', {
             text: "Failed to load user peers!",
           })
         })
+    },
+    // Per-(user × interface) pool actions (BNet-m76e).
+    async LoadUserPools(id) {
+      return apiWrapper.get(`${baseUrl}/${base64_url_encode(id)}/pools`)
+        .then(this.setUserPools)
+        .catch(error => {
+          this.setUserPools([])
+          console.log("Failed to load user pools for ", id, ": ", error)
+          notify({
+            title: "Backend Connection Failure",
+            text: "Failed to load user pools!",
+          })
+        })
+    },
+    async UpdateUserPool(userId, ifaceId, payload) {
+      return apiWrapper.put(
+        `${baseUrl}/${base64_url_encode(userId)}/pools/${base64_url_encode(ifaceId)}`,
+        payload,
+      ).then(updated => {
+        // Replace or append in local state.
+        const idx = this.userPools.findIndex(
+          p => p.UserIdentifier === userId && p.InterfaceIdentifier === ifaceId,
+        )
+        if (idx >= 0) this.userPools[idx] = updated
+        else this.userPools.push(updated)
+        notify({
+          title: "Pool updated",
+          text: `Pool for ${userId} on ${ifaceId} saved.`,
+          type: 'success',
+        })
+        return updated
+      }).catch(error => {
+        notify({
+          title: "Pool update failed",
+          text: error?.message || "Failed to save pool.",
+          type: 'error',
+        })
+        throw error
+      })
+    },
+    async ReleaseUserPool(userId, ifaceId) {
+      return apiWrapper.delete(
+        `${baseUrl}/${base64_url_encode(userId)}/pools/${base64_url_encode(ifaceId)}`,
+      ).then(() => {
+        this.userPools = this.userPools.filter(
+          p => !(p.UserIdentifier === userId && p.InterfaceIdentifier === ifaceId),
+        )
+        notify({
+          title: "Pool released",
+          text: `Pool for ${userId} on ${ifaceId} released.`,
+          type: 'success',
+        })
+      }).catch(error => {
+        notify({
+          title: "Pool release failed",
+          text: error?.message || "Failed to release pool.",
+          type: 'error',
+        })
+        throw error
+      })
     },
     async BulkDelete(ids) {
       this.fetching = true

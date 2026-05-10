@@ -8,7 +8,7 @@ import { VueTagsInput } from '@vojtechlanka/vue-tags-input';
 import { validateCIDR, validateIP, validateDomain } from '@/helpers/validators';
 import isCidr from "is-cidr";
 import {isIP} from 'is-ip';
-import { freshInterface, freshAmneziaWG } from '@/helpers/models';
+import { freshInterface, freshAmneziaWG, freshUserPool } from '@/helpers/models';
 import {peerStore} from "@/stores/peers";
 import {settingsStore} from "@/stores/settings";
 
@@ -119,6 +119,7 @@ watch(() => props.visible, async (newValue, oldValue) => {
           formData.value.PeerDefPreDown = interfaces.Prepared.PeerDefPreDown
           formData.value.PeerDefPostDown = interfaces.Prepared.PeerDefPostDown
           formData.value.AmneziaWG = interfaces.Prepared.AmneziaWG || freshAmneziaWG()
+          formData.value.UserPool = interfaces.Prepared.UserPool || freshUserPool()
         } else { // fill existing userdata
           formData.value.Disabled = selectedInterface.value.Disabled
           formData.value.Identifier = selectedInterface.value.Identifier
@@ -163,6 +164,9 @@ watch(() => props.visible, async (newValue, oldValue) => {
           // keep a fully-zeroed default so binding never fails. The
           // AWG-specific fieldset is hidden unless Backend === 'amneziawg'.
           formData.value.AmneziaWG = selectedInterface.value.AmneziaWG || freshAmneziaWG()
+          // Per-(user × interface) pool config (BNet-m76e). Always
+          // emitted by the API; default-empty for non-anycast interfaces.
+          formData.value.UserPool = selectedInterface.value.UserPool || freshUserPool()
         }
       }
     }
@@ -618,6 +622,67 @@ async function del() {
                selected as 'amneziawg'. Each input has an inline tooltip
                (title=) summarizing the param + recommended range, and a
                red error span below when client-side validation fails. -->
+          <!-- User-pool config (BNet-m76e). Per-(user × interface)
+               auto-allocator settings. Empty supernet on a family
+               disables auto-allocation for that family. -->
+          <fieldset>
+            <legend class="mt-4">User-pool auto-allocator</legend>
+            <p class="text-muted small">
+              Per-(user × interface) /N slices auto-allocated on first
+              peer creation. Each user's peers draw from their own slice
+              within the supernet, skipping reserved CIDRs. Empty
+              supernet disables auto-allocation for that family.
+            </p>
+            <div class="row">
+              <div class="form-group col-md-6">
+                <label class="form-label mt-2">Supernet IPv4</label>
+                <input v-model="formData.UserPool.SupernetV4" class="form-control" placeholder="10.66.0.0/16">
+              </div>
+              <div class="form-group col-md-2">
+                <label class="form-label mt-2">Slice /N</label>
+                <input v-model.number="formData.UserPool.SizeV4" type="number" class="form-control" placeholder="27">
+              </div>
+              <div class="form-group col-md-4">
+                <label class="form-label mt-2">Reserved (comma)</label>
+                <input :value="(formData.UserPool.ReservedV4 || []).join(',')"
+                       @input="formData.UserPool.ReservedV4 = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                       class="form-control" placeholder="10.66.255.0/24,10.66.254.0/24">
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group col-md-6">
+                <label class="form-label mt-2">Supernet IPv6 ULA</label>
+                <input v-model="formData.UserPool.SupernetV6Ula" class="form-control" placeholder="fdcc:ad94:bacf:6160::/64">
+              </div>
+              <div class="form-group col-md-2">
+                <label class="form-label mt-2">Slice /N</label>
+                <input v-model.number="formData.UserPool.SizeV6Ula" type="number" class="form-control" placeholder="80">
+              </div>
+              <div class="form-group col-md-4">
+                <label class="form-label mt-2">Reserved (comma)</label>
+                <input :value="(formData.UserPool.ReservedV6Ula || []).join(',')"
+                       @input="formData.UserPool.ReservedV6Ula = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                       class="form-control" placeholder="fdcc:...:ffff::/96">
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group col-md-6">
+                <label class="form-label mt-2">Supernet IPv6 PI</label>
+                <input v-model="formData.UserPool.SupernetV6Pi" class="form-control" placeholder="2602:f481:0:cc::/64">
+              </div>
+              <div class="form-group col-md-2">
+                <label class="form-label mt-2">Slice /N</label>
+                <input v-model.number="formData.UserPool.SizeV6Pi" type="number" class="form-control" placeholder="80">
+              </div>
+              <div class="form-group col-md-4">
+                <label class="form-label mt-2">Reserved (comma)</label>
+                <input :value="(formData.UserPool.ReservedV6Pi || []).join(',')"
+                       @input="formData.UserPool.ReservedV6Pi = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                       class="form-control" placeholder="2602:...:ffff::/96">
+              </div>
+            </div>
+          </fieldset>
+
           <fieldset v-if="formData.Backend==='amneziawg'">
             <legend class="mt-4">{{ $t('modals.interface-edit.header-amneziawg') }}</legend>
             <p class="text-muted small">{{ $t('modals.interface-edit.amneziawg-description') }}</p>

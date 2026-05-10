@@ -48,10 +48,25 @@ export function freshInterface() {
     // a fully-zeroed default here so the form bindings always have something
     // to point at and the API DTO round-trips cleanly.
     AmneziaWG: freshAmneziaWG(),
+    UserPool: freshUserPool(),
 
     TotalPeers: 0,
     EnabledPeers: 0,
     Filename: ""
+  }
+}
+
+export function freshUserPool() {
+  return {
+    SupernetV4: "",
+    SizeV4: 0,
+    ReservedV4: [],
+    SupernetV6Ula: "",
+    SizeV6Ula: 0,
+    ReservedV6Ula: [],
+    SupernetV6Pi: "",
+    SizeV6Pi: 0,
+    ReservedV6Pi: [],
   }
 }
 

@@ -41,6 +41,12 @@ type UserService interface {
 	BulkDelete(ctx context.Context, ids []domain.UserIdentifier) error
 	// BulkUpdate modifies multiple users.
 	BulkUpdate(ctx context.Context, ids []domain.UserIdentifier, updateFn func(*domain.User)) error
+
+	// Per-(user × interface) pool operations (BNet-m76e).
+	GetUserInterfacePools(ctx context.Context, user domain.UserIdentifier) ([]domain.UserInterfacePool, error)
+	GetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) (*domain.UserInterfacePool, error)
+	SetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier, pool *domain.UserInterfacePool, skipRenumber bool) (*domain.UserInterfacePool, error)
+	DeleteUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) error
 }
 
 type UserEndpoint struct {
@@ -89,6 +95,11 @@ func (e UserEndpoint) RegisterRoutes(g *routegroup.Bundle) {
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /bulk-disable", e.handleBulkDisable())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /bulk-lock", e.handleBulkLock())
 	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("POST /bulk-unlock", e.handleBulkUnlock())
+
+	// Per-(user × interface) pool endpoints (BNet-m76e).
+	apiGroup.With(e.authenticator.UserIdMatch("id")).HandleFunc("GET /{id}/pools", e.handlePoolsGet())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("PUT /{id}/pools/{iface}", e.handlePoolPut())
+	apiGroup.With(e.authenticator.LoggedIn(ScopeAdmin)).HandleFunc("DELETE /{id}/pools/{iface}", e.handlePoolDelete())
 }
 
 // handleAllGet returns a gorm Handler function.
@@ -654,6 +665,122 @@ func (e UserEndpoint) handleBulkUnlock() http.HandlerFunc {
 			return
 		}
 
+		respond.Status(w, http.StatusNoContent)
+	}
+}
+
+// handlePoolsGet returns all per-(user × interface) pool rows for the
+// given user identifier. (BNet-m76e)
+//
+// @ID users_handlePoolsGet
+// @Tags Users
+// @Summary List a user's per-interface network pools.
+// @Produce json
+// @Param id path string true "The user identifier"
+// @Success 200 {object} []model.UserInterfacePool
+// @Failure 500 {object} model.Error
+// @Router /user/{id}/pools [get]
+func (e UserEndpoint) handlePoolsGet() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := Base64UrlDecode(request.Path(r, "id"))
+		if id == "" {
+			respond.JSON(w, http.StatusBadRequest,
+				model.Error{Code: http.StatusBadRequest, Message: "missing user id"})
+			return
+		}
+		pools, err := e.userService.GetUserInterfacePools(r.Context(), domain.UserIdentifier(id))
+		if err != nil {
+			respond.JSON(w, http.StatusInternalServerError,
+				model.Error{Code: http.StatusInternalServerError, Message: err.Error()})
+			return
+		}
+		respond.JSON(w, http.StatusOK, model.NewUserInterfacePools(pools))
+	}
+}
+
+// handlePoolPut sets/updates the user's pool on a specific interface.
+// Optionally renumbers existing peer addresses to land in the new pool
+// (default; pass {"SkipPeerRenumber": true} to skip).
+//
+// @ID users_handlePoolPut
+// @Tags Users
+// @Summary Set/override a user's pool on a specific interface.
+// @Produce json
+// @Param id path string true "The user identifier"
+// @Param iface path string true "The interface identifier"
+// @Param request body model.UserPoolUpdateRequest true "Pool fields"
+// @Success 200 {object} model.UserInterfacePool
+// @Failure 400 {object} model.Error
+// @Failure 500 {object} model.Error
+// @Router /user/{id}/pools/{iface} [put]
+func (e UserEndpoint) handlePoolPut() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := Base64UrlDecode(request.Path(r, "id"))
+		iface := Base64UrlDecode(request.Path(r, "iface"))
+		if id == "" || iface == "" {
+			respond.JSON(w, http.StatusBadRequest,
+				model.Error{Code: http.StatusBadRequest, Message: "missing user or iface id"})
+			return
+		}
+		var req model.UserPoolUpdateRequest
+		if err := request.BodyJson(r, &req); err != nil {
+			respond.JSON(w, http.StatusBadRequest, model.Error{Code: http.StatusBadRequest, Message: err.Error()})
+			return
+		}
+		newPool := &domain.UserInterfacePool{
+			UserIdentifier:      domain.UserIdentifier(id),
+			InterfaceIdentifier: domain.InterfaceIdentifier(iface),
+			PoolV4:              req.PoolV4,
+			PoolV6Ula:           req.PoolV6Ula,
+			PoolV6Pi:            req.PoolV6Pi,
+		}
+		saved, err := e.userService.SetUserInterfacePool(
+			r.Context(),
+			domain.UserIdentifier(id),
+			domain.InterfaceIdentifier(iface),
+			newPool,
+			req.SkipPeerRenumber,
+		)
+		if err != nil {
+			respond.JSON(w, http.StatusBadRequest, model.Error{Code: http.StatusBadRequest, Message: err.Error()})
+			return
+		}
+		respond.JSON(w, http.StatusOK, model.NewUserInterfacePool(saved))
+	}
+}
+
+// handlePoolDelete clears the user's pool row on a specific interface.
+// Existing peer addresses are NOT renumbered or removed; admin can
+// renumber via PUT or the auto-allocator will pick a fresh pool on
+// next peer creation. (BNet-m76e)
+//
+// @ID users_handlePoolDelete
+// @Tags Users
+// @Summary Release a user's pool on a specific interface.
+// @Param id path string true "The user identifier"
+// @Param iface path string true "The interface identifier"
+// @Success 204
+// @Failure 500 {object} model.Error
+// @Router /user/{id}/pools/{iface} [delete]
+func (e UserEndpoint) handlePoolDelete() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := Base64UrlDecode(request.Path(r, "id"))
+		iface := Base64UrlDecode(request.Path(r, "iface"))
+		if id == "" || iface == "" {
+			respond.JSON(w, http.StatusBadRequest,
+				model.Error{Code: http.StatusBadRequest, Message: "missing user or iface id"})
+			return
+		}
+		err := e.userService.DeleteUserInterfacePool(
+			r.Context(),
+			domain.UserIdentifier(id),
+			domain.InterfaceIdentifier(iface),
+		)
+		if err != nil {
+			respond.JSON(w, http.StatusInternalServerError,
+				model.Error{Code: http.StatusInternalServerError, Message: err.Error()})
+			return
+		}
 		respond.Status(w, http.StatusNoContent)
 	}
 }

@@ -53,11 +53,32 @@ type Interface struct {
 	// Backend is amneziawg and these are editable.
 	AmneziaWG *AmneziaWGParams `json:"AmneziaWG,omitempty"`
 
+	// Per-(user × interface) auto-allocator config (BNet-2ya4 / BNet-m76e).
+	// Empty supernet on a family disables auto-allocation for that family.
+	UserPool *UserPoolConfig `json:"UserPool,omitempty"`
+
 	// Calculated values
 
 	EnabledPeers int    `json:"EnabledPeers"`
 	TotalPeers   int    `json:"TotalPeers"`
 	Filename     string `json:"Filename"` // the filename of the config file, for example: wg0.conf
+}
+
+// UserPoolConfig is the per-(user × interface) auto-allocator config.
+// Each user gets a /SizeV4 slice of SupernetV4 (and similarly for v6
+// ULA + v6 PI) on this interface; first peer creation triggers
+// allocation. CIDRs in ReservedV4 are skipped by the allocator
+// (server interface IP /24s, system reservations).
+type UserPoolConfig struct {
+	SupernetV4    string   `json:"SupernetV4"`
+	SizeV4        int      `json:"SizeV4"`
+	ReservedV4    []string `json:"ReservedV4"`
+	SupernetV6Ula string   `json:"SupernetV6Ula"`
+	SizeV6Ula     int      `json:"SizeV6Ula"`
+	ReservedV6Ula []string `json:"ReservedV6Ula"`
+	SupernetV6Pi  string   `json:"SupernetV6Pi"`
+	SizeV6Pi      int      `json:"SizeV6Pi"`
+	ReservedV6Pi  []string `json:"ReservedV6Pi"`
 }
 
 // AmneziaWGParams is the JSON-friendly view of domain.AmneziaInterfaceExtras.
@@ -127,6 +148,20 @@ func NewInterface(src *domain.Interface, peers []domain.Peer) *Interface {
 
 	if iface.Backend == "" {
 		iface.Backend = config.LocalBackendName // default to local backend
+	}
+
+	// Surface the per-iface pool config (BNet-m76e). Always emitted so
+	// the UI can render an empty/editable form even on legacy interfaces.
+	iface.UserPool = &UserPoolConfig{
+		SupernetV4:    src.UserPoolSupernetV4,
+		SizeV4:        src.UserPoolSizeV4,
+		ReservedV4:    internal.SliceString(src.UserPoolReservedV4),
+		SupernetV6Ula: src.UserPoolSupernetV6Ula,
+		SizeV6Ula:     src.UserPoolSizeV6Ula,
+		ReservedV6Ula: internal.SliceString(src.UserPoolReservedV6Ula),
+		SupernetV6Pi:  src.UserPoolSupernetV6Pi,
+		SizeV6Pi:      src.UserPoolSizeV6Pi,
+		ReservedV6Pi:  internal.SliceString(src.UserPoolReservedV6Pi),
 	}
 
 	if src.AmneziaExtras != nil {
@@ -258,6 +293,18 @@ func NewDomainInterface(src *Interface) *domain.Interface {
 			I4:   src.AmneziaWG.I4,
 			I5:   src.AmneziaWG.I5,
 		}
+	}
+
+	if src.UserPool != nil {
+		res.UserPoolSupernetV4 = src.UserPool.SupernetV4
+		res.UserPoolSizeV4 = src.UserPool.SizeV4
+		res.UserPoolReservedV4 = internal.SliceToString(src.UserPool.ReservedV4)
+		res.UserPoolSupernetV6Ula = src.UserPool.SupernetV6Ula
+		res.UserPoolSizeV6Ula = src.UserPool.SizeV6Ula
+		res.UserPoolReservedV6Ula = internal.SliceToString(src.UserPool.ReservedV6Ula)
+		res.UserPoolSupernetV6Pi = src.UserPool.SupernetV6Pi
+		res.UserPoolSizeV6Pi = src.UserPool.SizeV6Pi
+		res.UserPoolReservedV6Pi = internal.SliceToString(src.UserPool.ReservedV6Pi)
 	}
 
 	return res
