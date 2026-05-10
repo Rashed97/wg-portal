@@ -222,9 +222,21 @@ func (m Manager) RestoreInterfaceState(
 		return err
 	}
 
+	siteId := m.cfg.Core.SiteId
 	for _, iface := range interfaces {
 		if len(filter) != 0 && !slices.Contains(filter, iface.Identifier) {
 			continue // ignore filtered interface
+		}
+
+		// Active-active scoping (BNet-jf2l). Only manage kernel state
+		// for interfaces whose SiteId matches this instance. Empty
+		// SiteId = "global / unowned" — fall through (legacy single-region
+		// behavior). When this instance has no SiteId configured at all,
+		// manage everything (legacy behavior preserved for upgrades).
+		if siteId != "" && iface.SiteId != "" && iface.SiteId != siteId {
+			slog.Debug("skipping interface — owned by another site",
+				"interface", iface.Identifier, "owner_site", iface.SiteId, "this_site", siteId)
+			continue
 		}
 
 		peers, err := m.db.GetInterfacePeers(ctx, iface.Identifier)
@@ -888,6 +900,12 @@ func (m Manager) importInterface(
 	}
 	iface.Backend = backend.GetId()
 	iface.PeerDefAllowedIPsStr = iface.AddressStr()
+
+	// Tag freshly-imported interfaces with this instance's site_id
+	// (BNet-jf2l). The kernel device exists locally, so this site owns
+	// it. Empty SiteId in config = legacy "global" import (preserved
+	// for single-region installs).
+	iface.SiteId = m.cfg.Core.SiteId
 
 	// For pfSense backends, extract endpoint and DNS from peers
 	if backend.GetId() == domain.ControllerTypePfsense {

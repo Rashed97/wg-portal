@@ -36,6 +36,11 @@ type InterfaceAndPeerDatabaseRepo interface {
 	GetPeer(ctx context.Context, id domain.PeerIdentifier) (*domain.Peer, error)
 	GetUsedIpsPerSubnet(ctx context.Context, subnets []domain.Cidr) (map[domain.Cidr][]domain.Cidr, error)
 	GetUser(ctx context.Context, id domain.UserIdentifier) (*domain.User, error)
+
+	// Per-(user × interface) pool support (BNet-2ya4 / BNet-5ag6).
+	GetUserInterfacePool(ctx context.Context, user domain.UserIdentifier, iface domain.InterfaceIdentifier) (*domain.UserInterfacePool, error)
+	GetUserInterfacePoolsForInterface(ctx context.Context, iface domain.InterfaceIdentifier) ([]domain.UserInterfacePool, error)
+	SaveUserInterfacePool(ctx context.Context, pool *domain.UserInterfacePool) error
 }
 
 type WgQuickController interface {

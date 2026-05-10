@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/h44z/wg-portal/internal/app"
@@ -106,7 +108,18 @@ func (m Manager) PreparePeer(ctx context.Context, id domain.InterfaceIdentifier)
 		return nil, fmt.Errorf("self provisioning is only allowed for server interfaces: %w", domain.ErrNoPermission)
 	}
 
-	ips, err := m.getFreshPeerIpConfig(ctx, iface)
+	// Per-interface per-user pool support (BNet-2ya4 / BNet-5ag6). When
+	// the caller is the prospective owner (self-prov), allocator scopes
+	// IPs to (currentUser × iface)'s slice. Admin-prep flows pass nil →
+	// allocator falls through to interface PeerDefNetworkStr (legacy).
+	var poolUser *domain.User
+	if currentUser != nil && !currentUser.IsAdmin {
+		u, fetchErr := m.db.GetUser(ctx, currentUser.Id)
+		if fetchErr == nil {
+			poolUser = u
+		}
+	}
+	ips, err := m.getFreshPeerIpConfig(ctx, iface, poolUser)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get fresh ip addresses: %w", err)
 	}
@@ -536,12 +549,39 @@ func (m Manager) savePeers(ctx context.Context, peers ...*domain.Peer) error {
 	return nil
 }
 
-func (m Manager) getFreshPeerIpConfig(ctx context.Context, iface *domain.Interface) (ips []domain.Cidr, err error) {
-	if iface.PeerDefNetworkStr == "" {
-		return []domain.Cidr{}, nil // cannot suggest new ip addresses if there is no subnet
+// getFreshPeerIpConfig returns the next available IPs for a new peer on
+// the given interface. Allocation precedence (BNet-2ya4 / BNet-5ag6):
+//
+//  1. If `user` is supplied AND the (user × iface) row exists in the
+//     user_interface_pools table, allocate from that pool.
+//  2. If `user` is supplied AND the interface has UserPoolSupernetV4
+//     (etc.) configured, auto-allocate the next free /N slice from the
+//     supernet (skipping iface.UserPoolReservedV4 ranges and any pools
+//     already taken by other users on this interface), persist the new
+//     pool row, and use it.
+//  3. Otherwise fall back to iface.PeerDefNetworkStr (legacy behavior).
+//
+// `user` is nil for admin-prep flows where the eventual peer owner
+// isn't the session user — admin sets peer.Addresses explicitly via the
+// API in that case.
+//
+// Multiple address families coexist: v4 from PoolV4 + supernet v4, v6
+// ULA from PoolV6Ula + supernet v6 ULA, v6 PI from PoolV6Pi + supernet
+// v6 PI. Each family resolves independently.
+func (m Manager) getFreshPeerIpConfig(ctx context.Context, iface *domain.Interface, user *domain.User) (ips []domain.Cidr, err error) {
+	// Resolve the network the peer should be allocated from. When user
+	// + interface have a pool, this is the pool itself (a /N CIDR).
+	// Otherwise it's iface.PeerDefNetworkStr (comma-separated CIDRs).
+	networkStrs, err := m.resolvePeerNetworksForUser(ctx, iface, user)
+	if err != nil {
+		return nil, err
+	}
+	if len(networkStrs) == 0 {
+		return []domain.Cidr{}, nil
 	}
 
-	networks, err := domain.CidrsFromString(iface.PeerDefNetworkStr)
+	// Combine into a single comma-separated CIDR list and parse.
+	networks, err := domain.CidrsFromString(joinNonEmpty(networkStrs, ","))
 	if err != nil {
 		err = fmt.Errorf("failed to parse default network address: %w", err)
 		return
@@ -580,6 +620,216 @@ func (m Manager) getFreshPeerIpConfig(ctx context.Context, iface *domain.Interfa
 	}
 
 	return
+}
+
+func joinNonEmpty(parts []string, sep string) string {
+	out := ""
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if out != "" {
+			out += sep
+		}
+		out += p
+	}
+	return out
+}
+
+// resolvePeerNetworksForUser implements the precedence above. Returns
+// the CIDR string(s) (one per address family) the caller should
+// allocate from, or empty slice to skip allocation. May persist a new
+// user_interface_pools row in the auto-allocate case.
+func (m Manager) resolvePeerNetworksForUser(
+	ctx context.Context,
+	iface *domain.Interface,
+	user *domain.User,
+) ([]string, error) {
+	// Cases 1+2 only apply when we have a target user.
+	if user != nil {
+		// Case 1: existing pool row?
+		existing, err := m.db.GetUserInterfacePool(ctx, user.Identifier, iface.Identifier)
+		if err == nil && existing != nil {
+			return cidrsFromExistingPool(existing), nil
+		}
+
+		// Case 2: auto-allocate per family.
+		needAlloc := iface.UserPoolSupernetV4 != "" || iface.UserPoolSupernetV6Ula != "" || iface.UserPoolSupernetV6Pi != ""
+		if needAlloc {
+			pool, allocErr := m.allocateUserInterfacePool(ctx, iface, user.Identifier)
+			if allocErr != nil {
+				return nil, fmt.Errorf("user pool auto-allocation failed: %w", allocErr)
+			}
+			if saveErr := m.db.SaveUserInterfacePool(ctx, pool); saveErr != nil {
+				return nil, fmt.Errorf("failed to persist user pool: %w", saveErr)
+			}
+			slog.InfoContext(ctx, "auto-allocated per-(user × interface) pool",
+				"user", user.Identifier,
+				"interface", iface.Identifier,
+				"v4", pool.PoolV4, "v6_ula", pool.PoolV6Ula, "v6_pi", pool.PoolV6Pi)
+			return cidrsFromExistingPool(pool), nil
+		}
+	}
+
+	// Case 3: legacy iface default.
+	if iface.PeerDefNetworkStr == "" {
+		return nil, nil
+	}
+	return []string{iface.PeerDefNetworkStr}, nil
+}
+
+func cidrsFromExistingPool(p *domain.UserInterfacePool) []string {
+	out := make([]string, 0, 3)
+	if p.PoolV4 != "" {
+		out = append(out, p.PoolV4)
+	}
+	if p.PoolV6Ula != "" {
+		out = append(out, p.PoolV6Ula)
+	}
+	if p.PoolV6Pi != "" {
+		out = append(out, p.PoolV6Pi)
+	}
+	return out
+}
+
+// allocateUserInterfacePool reserves the next free /N slice for each
+// configured family on the interface, skipping any reserved CIDRs and
+// any pools already taken by other users on the same interface.
+func (m Manager) allocateUserInterfacePool(
+	ctx context.Context,
+	iface *domain.Interface,
+	user domain.UserIdentifier,
+) (*domain.UserInterfacePool, error) {
+	pool := &domain.UserInterfacePool{
+		UserIdentifier:      user,
+		InterfaceIdentifier: iface.Identifier,
+	}
+
+	// Gather all existing pools on this interface so we don't double-allocate.
+	existing, err := m.db.GetUserInterfacePoolsForInterface(ctx, iface.Identifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list interface pools: %w", err)
+	}
+	usedV4 := poolSet(existing, "v4")
+	usedV6Ula := poolSet(existing, "ula")
+	usedV6Pi := poolSet(existing, "pi")
+
+	if iface.UserPoolSupernetV4 != "" && iface.UserPoolSizeV4 > 0 {
+		slice, allocErr := pickNextFreeSlice(iface.UserPoolSupernetV4, iface.UserPoolReservedV4, iface.UserPoolSizeV4, usedV4)
+		if allocErr != nil {
+			return nil, fmt.Errorf("v4 pool allocation: %w", allocErr)
+		}
+		pool.PoolV4 = slice
+	}
+	if iface.UserPoolSupernetV6Ula != "" && iface.UserPoolSizeV6Ula > 0 {
+		slice, allocErr := pickNextFreeSlice(iface.UserPoolSupernetV6Ula, iface.UserPoolReservedV6Ula, iface.UserPoolSizeV6Ula, usedV6Ula)
+		if allocErr != nil {
+			return nil, fmt.Errorf("v6 ULA pool allocation: %w", allocErr)
+		}
+		pool.PoolV6Ula = slice
+	}
+	if iface.UserPoolSupernetV6Pi != "" && iface.UserPoolSizeV6Pi > 0 {
+		slice, allocErr := pickNextFreeSlice(iface.UserPoolSupernetV6Pi, iface.UserPoolReservedV6Pi, iface.UserPoolSizeV6Pi, usedV6Pi)
+		if allocErr != nil {
+			return nil, fmt.Errorf("v6 PI pool allocation: %w", allocErr)
+		}
+		pool.PoolV6Pi = slice
+	}
+
+	return pool, nil
+}
+
+func poolSet(existing []domain.UserInterfacePool, family string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, p := range existing {
+		var s string
+		switch family {
+		case "v4":
+			s = p.PoolV4
+		case "ula":
+			s = p.PoolV6Ula
+		case "pi":
+			s = p.PoolV6Pi
+		}
+		if s != "" {
+			out[s] = struct{}{}
+		}
+	}
+	return out
+}
+
+// pickNextFreeSlice scans `supernet` in /size strides, skipping any
+// CIDR contained inside one of the reserved CIDR strings and any
+// candidate already in `used`. Returns the first free slice as a CIDR
+// string. Reserved/used both compare by string equality OR overlap.
+func pickNextFreeSlice(supernet, reservedStr string, size int, used map[string]struct{}) (string, error) {
+	supernetPrefix, err := netip.ParsePrefix(supernet)
+	if err != nil {
+		return "", fmt.Errorf("invalid supernet %q: %w", supernet, err)
+	}
+	if size <= supernetPrefix.Bits() {
+		return "", fmt.Errorf("slice /%d must be more specific than supernet /%d",
+			size, supernetPrefix.Bits())
+	}
+
+	var reserved []netip.Prefix
+	for _, r := range strings.Split(reservedStr, ",") {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		p, parseErr := netip.ParsePrefix(r)
+		if parseErr != nil {
+			return "", fmt.Errorf("invalid reserved CIDR %q: %w", r, parseErr)
+		}
+		reserved = append(reserved, p)
+	}
+
+	candidate := netip.PrefixFrom(supernetPrefix.Addr(), size).Masked()
+	for supernetPrefix.Contains(candidate.Addr()) {
+		s := candidate.String()
+		conflicting := false
+		if _, taken := used[s]; taken {
+			conflicting = true
+		}
+		if !conflicting {
+			for _, r := range reserved {
+				if prefixOverlaps(r, candidate) {
+					conflicting = true
+					break
+				}
+			}
+		}
+		if !conflicting {
+			return s, nil
+		}
+		next, ok := nextSiblingPrefix(candidate)
+		if !ok {
+			break
+		}
+		candidate = next
+	}
+	return "", fmt.Errorf("supernet %s exhausted at /%d granularity", supernetPrefix, size)
+}
+
+// prefixOverlaps returns true if either prefix contains the other.
+func prefixOverlaps(a, b netip.Prefix) bool {
+	return a.Contains(b.Addr()) || b.Contains(a.Addr())
+}
+
+// nextSiblingPrefix returns the prefix immediately after p (same length),
+// or (_, false) on overflow.
+func nextSiblingPrefix(p netip.Prefix) (netip.Prefix, bool) {
+	addr := p.Addr()
+	step := uint64(1) << uint(addr.BitLen()-p.Bits())
+	for i := uint64(0); i < step; i++ {
+		next := addr.Next()
+		if !next.IsValid() {
+			return netip.Prefix{}, false
+		}
+		addr = next
+	}
+	return netip.PrefixFrom(addr, p.Bits()), true
 }
 
 func (m Manager) validatePeerModifications(ctx context.Context, _, _ *domain.Peer) error {

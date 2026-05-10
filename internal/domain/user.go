@@ -71,7 +71,36 @@ type User struct {
 	ApiToken        string `form:"api_token" binding:"omitempty" gorm:"serializer:encstr"`
 	ApiTokenCreated *time.Time
 
+	// Per-interface user pools live in their own table — see
+	// UserInterfacePool below. Loaded by the manager only when needed
+	// (allocator path). Not eagerly fetched.
+	InterfacePools []UserInterfacePool `gorm:"foreignKey:user_identifier" json:"-"`
+
 	LinkedPeerCount int `gorm:"-"`
+}
+
+// UserInterfacePool is the per-(user × interface) network slice
+// allocated by wg-portal's auto-allocator (BNet-2ya4 / BNet-5ag6).
+// Composite primary key (user_identifier, interface_identifier) means
+// each user gets exactly ONE slice on each interface they have peers on.
+//
+// Each interface's supernet/size config (Interface.UserPoolSupernet*)
+// drives allocation. If a user has multiple devices on the same
+// interface, all those peers' IPs draw from THIS pool — same /27 — so
+// per-pool nft isolation rules contain the whole family of devices.
+//
+// PoolV4 / PoolV6Ula / PoolV6Pi are CIDR strings ("10.66.1.0/27",
+// "fdcc:ad94:bacf:61a3:0:1::/80", etc.). Empty means not allocated yet
+// for that family (e.g. v6 PI may be empty until BNet-u604 wires it).
+type UserInterfacePool struct {
+	UserIdentifier      UserIdentifier      `gorm:"primaryKey;column:user_identifier"`
+	InterfaceIdentifier InterfaceIdentifier `gorm:"primaryKey;column:interface_identifier"`
+
+	PoolV4    string `gorm:"column:pool_v4"`
+	PoolV6Ula string `gorm:"column:pool_v6_ula"`
+	PoolV6Pi  string `gorm:"column:pool_v6_pi"`
+
+	BaseModel
 }
 
 // IsDisabled returns true if the user is disabled. In such a case,

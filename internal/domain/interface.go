@@ -79,6 +79,34 @@ type Interface struct {
 	PeerDefPreDown  string // default action that is executed before the device is down
 	PeerDefPostDown string // default action that is executed after the device is down
 
+	// Active-active scoping (BNet-jf2l). When set, only wg-portal
+	// instances whose `core.site_id` matches will run kernel-side
+	// management (apply state, statistics collectors, route sync) for
+	// this interface. ALL instances still see it in the DB + UI so the
+	// shared admin model stays single-pane-of-glass.
+	// Empty SiteId means "global / unowned" — every instance manages it
+	// (legacy; preserved for upgrade from pre-multi-region installs).
+	SiteId string `gorm:"column:site_id;index"`
+
+	// Per-interface user pool config (BNet-2ya4 / BNet-5ag6). Each user
+	// gets a /UserPoolSizeV4 slice of UserPoolSupernetV4 on this
+	// interface — auto-allocated on first peer creation; persisted in
+	// the user_interface_pools table. CIDRs in UserPoolReservedV4 are
+	// skipped during allocation (e.g. "10.66.0.0/24" reserved for the
+	// wg0 interface IP + future system peers).
+	//
+	// Empty SupernetV4 → legacy behavior (peers drawn directly from
+	// PeerDefNetworkStr without per-user scoping).
+	UserPoolSupernetV4    string `gorm:"column:user_pool_supernet_v4"`
+	UserPoolSizeV4        int    `gorm:"column:user_pool_size_v4"`
+	UserPoolReservedV4    string `gorm:"column:user_pool_reserved_v4"` // comma-separated CIDRs to skip
+	UserPoolSupernetV6Ula string `gorm:"column:user_pool_supernet_v6_ula"`
+	UserPoolSizeV6Ula     int    `gorm:"column:user_pool_size_v6_ula"`
+	UserPoolReservedV6Ula string `gorm:"column:user_pool_reserved_v6_ula"`
+	UserPoolSupernetV6Pi  string `gorm:"column:user_pool_supernet_v6_pi"`
+	UserPoolSizeV6Pi      int    `gorm:"column:user_pool_size_v6_pi"`
+	UserPoolReservedV6Pi  string `gorm:"column:user_pool_reserved_v6_pi"`
+
 	// Self-provisioning access control
 	LdapAllowedUsers map[string][]UserIdentifier `gorm:"serializer:json"` // Materialised during LDAP sync, keyed by ProviderName
 

@@ -29,6 +29,15 @@ type Config struct {
 		SelfProvisioningAllowed     bool `yaml:"self_provisioning_allowed"`
 		ImportExisting              bool `yaml:"import_existing"`
 		RestoreState                bool `yaml:"restore_state"`
+
+		// SiteId scopes which interfaces this wg-portal instance manages
+		// at the kernel level (BNet-jf2l). Only interfaces whose
+		// `site_id` column matches this string get state-restoration,
+		// statistics, etc. Other interfaces are still readable in the
+		// admin UI (since the DB is shared) but no kernel actions are
+		// taken locally. Empty SiteId = legacy "manage everything" mode
+		// — fine for single-region installs.
+		SiteId string `yaml:"site_id"`
 	} `yaml:"core"`
 
 	Advanced struct {

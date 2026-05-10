@@ -231,6 +231,8 @@ func (r *SqlRepo) migrate() error {
 	slog.Debug("running migration: peer status", "result", r.db.AutoMigrate(&domain.PeerStatus{}))
 	slog.Debug("running migration: interface status", "result", r.db.AutoMigrate(&domain.InterfaceStatus{}))
 	slog.Debug("running migration: audit data", "result", r.db.AutoMigrate(&domain.AuditEntry{}))
+	slog.Debug("running migration: user_interface_pools (BNet-2ya4)",
+		"result", r.db.AutoMigrate(&domain.UserInterfacePool{}))
 
 	var existingSysStat SysStat
 	var err error
@@ -932,6 +934,71 @@ func (r *SqlRepo) FindUsers(ctx context.Context, search string) ([]domain.User, 
 	return users, nil
 }
 
+// GetUserInterfacePool returns the (user × interface) pool row, or
+// nil if the user has no allocation on this interface yet.
+// (BNet-2ya4 / BNet-5ag6)
+func (r *SqlRepo) GetUserInterfacePool(
+	ctx context.Context,
+	user domain.UserIdentifier,
+	iface domain.InterfaceIdentifier,
+) (*domain.UserInterfacePool, error) {
+	var p domain.UserInterfacePool
+	err := r.db.WithContext(ctx).
+		Where("user_identifier = ? AND interface_identifier = ?", user, iface).
+		First(&p).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+// GetUserInterfacePoolsForInterface returns all pool rows for a given
+// interface (used to find which slices are already taken when
+// auto-allocating a fresh slice for a new user).
+func (r *SqlRepo) GetUserInterfacePoolsForInterface(
+	ctx context.Context,
+	iface domain.InterfaceIdentifier,
+) ([]domain.UserInterfacePool, error) {
+	var rows []domain.UserInterfacePool
+	err := r.db.WithContext(ctx).
+		Where("interface_identifier = ?", iface).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// SaveUserInterfacePool inserts or updates the (user × interface) pool
+// row. UPSERT semantics keep this idempotent in the auto-allocate path.
+func (r *SqlRepo) SaveUserInterfacePool(
+	ctx context.Context,
+	pool *domain.UserInterfacePool,
+) error {
+	now := time.Now()
+	userInfo := domain.GetUserInfo(ctx)
+	pool.UpdatedAt = now
+	pool.UpdatedBy = string(userInfo.Id)
+	if pool.CreatedAt.IsZero() {
+		pool.CreatedAt = now
+		pool.CreatedBy = string(userInfo.Id)
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_identifier"},
+				{Name: "interface_identifier"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"pool_v4", "pool_v6_ula", "pool_v6_pi",
+				"updated_at", "updated_by",
+			}),
+		}).Create(pool).Error
+}
+
 // SaveUser updates the user with the given id.
 // If no user is found, a new user is created.
 func (r *SqlRepo) SaveUser(
@@ -1093,12 +1160,12 @@ func (r *SqlRepo) getOrCreateInterfaceStatus(tx *gorm.DB, id domain.InterfaceIde
 }
 
 func (r *SqlRepo) upsertInterfaceStatus(tx *gorm.DB, in *domain.InterfaceStatus) error {
-	err := tx.Save(in).Error
-	if err != nil {
-		return err
-	}
-
-	return nil
+	// Same Postgres-side race as upsertPeerStatus (BNet-2hvr). Force
+	// ON CONFLICT DO UPDATE on the primary-key column.
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "identifier"}},
+		UpdateAll: true,
+	}).Create(in).Error
 }
 
 // UpdatePeerStatus updates the peer status with the given id.
@@ -1152,12 +1219,16 @@ func (r *SqlRepo) getOrCreatePeerStatus(tx *gorm.DB, id domain.PeerIdentifier) (
 }
 
 func (r *SqlRepo) upsertPeerStatus(tx *gorm.DB, in *domain.PeerStatus) error {
-	err := tx.Save(in).Error
-	if err != nil {
-		return err
-	}
-
-	return nil
+	// On Postgres, GORM's Save() races with parallel reads in the
+	// FirstOrCreate path above and triggers
+	// "duplicate key value violates unique constraint peer_statuses_pkey"
+	// (BNet-2hvr). Force an explicit ON CONFLICT DO UPDATE so the
+	// statement is unambiguous regardless of upstream's UpdateAll
+	// dialect detection.
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "identifier"}},
+		UpdateAll: true,
+	}).Create(in).Error
 }
 
 // DeletePeerStatus deletes the peer status with the given id.
